@@ -28,6 +28,7 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
   assert.match(launcher, /\/api\/local-files\/pick/);
   assert.match(launcher, /\/api\/local-files\/read\//);
   assert.match(launcher, /localFileTokens/);
+  assert.match(launcher, /ShowForegroundDialog/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/status/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/pick/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/launch/);
@@ -42,4 +43,6 @@ test("development mode opens the browser file chooser synchronously", async () =
   assert.match(page, /window\.location\.port === "37651"/);
   assert.match(page, /fileInputRef\.current\?\.click\(\)/);
   assert.match(page, /folderInputRef\.current\?\.click\(\)/);
+  assert.match(page, /aria-label="选择一个或多个需求文档"/);
+  assert.match(page, /void chooseDocuments\("files"\)/);
 });

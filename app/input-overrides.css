@@ -31,6 +31,22 @@
   color: #fff;
 }
 
+.drop-zone {
+  cursor: pointer;
+  outline: none;
+}
+
+.drop-zone:focus-visible {
+  border-color: #8873ea;
+  background: #faf9ff;
+  box-shadow: 0 0 0 3px #f1eeff;
+}
+
+.drop-zone[aria-disabled="true"] {
+  cursor: wait;
+  opacity: .62;
+}
+
 .drop-zone em {
   margin-top: 10px;
   background: transparent;

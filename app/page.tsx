@@ -679,10 +679,25 @@ export default function Home() {
               </div>
 
               {!documents.length ? (
-                <div className="drop-zone">
+                <div
+                  className="drop-zone"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="选择一个或多个需求文档"
+                  aria-disabled={selectingDocuments}
+                  onClick={event => {
+                    if ((event.target as HTMLElement).closest("button") || selectingDocuments) return;
+                    void chooseDocuments("files");
+                  }}
+                  onKeyDown={event => {
+                    if (selectingDocuments || (event.key !== "Enter" && event.key !== " ")) return;
+                    event.preventDefault();
+                    void chooseDocuments("files");
+                  }}
+                >
                   <span className="drop-icon">⇩</span>
                   <strong>添加需求输入文档</strong>
-                  <small>可选择不同目录下的文件，也可一次导入整个文件夹</small>
+                  <small>点击此区域选择文件，也可一次导入整个文件夹</small>
                   <div className="drop-actions">
                     <button className="drop-primary" onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>选择一个或多个文件</button>
                     <button onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>选择整个文件夹</button>
