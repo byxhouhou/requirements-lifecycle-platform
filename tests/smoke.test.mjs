@@ -55,8 +55,10 @@ test("development mode opens the browser file chooser synchronously", async () =
 test("Beyond Compare resolves selected version paths at launch time", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /const leftPath = preferredSourcePath\(selectedBaseVersion\)/);
-  assert.match(page, /const rightPath = preferredSourcePath\(selectedTargetVersion\)/);
+  assert.match(page, /beyondComparePath\?: string/);
+  assert.match(page, /const leftPath = beyondLeftPath\.trim\(\) \|\| boundComparisonPath\(selectedBaseVersion\)/);
+  assert.match(page, /const rightPath = beyondRightPath\.trim\(\) \|\| boundComparisonPath\(selectedTargetVersion\)/);
+  assert.match(page, /persistComparisonBindings/);
   assert.match(page, /setBeyondLeftPath\(leftPath\)/);
   assert.match(page, /setBeyondRightPath\(rightPath\)/);
 });

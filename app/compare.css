@@ -627,6 +627,13 @@
   box-shadow: 0 0 0 3px #f0edff;
 }
 
+.path-binding-note {
+  display: block;
+  margin-top: 5px;
+  color: #8b92a1;
+  font-size: 8px;
+}
+
 .path-input button,
 .path-swap-button {
   flex: 0 0 auto;

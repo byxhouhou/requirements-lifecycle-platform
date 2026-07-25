@@ -34,6 +34,7 @@ type BaselineCommit = {
   createdAt: string;
   snapshots?: SnapshotFile[];
   sourcePaths?: SourceDocumentPath[];
+  beyondComparePath?: string;
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
@@ -122,6 +123,8 @@ const today = () => {
 const safeName = (value: string) => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim();
 
 const preferredSourcePath = (record?: BaselineCommit) => record?.sourcePaths?.[0]?.path ?? "";
+const boundComparisonPath = (record?: BaselineCommit) =>
+  record?.beyondComparePath?.trim() || preferredSourcePath(record);
 
 const writeFile = async (folder: DirectoryHandle, name: string, data: string | Blob) => {
   const file = await folder.getFileHandle(safeName(name), { create: true });
@@ -247,8 +250,8 @@ export default function Home() {
 
   useEffect(() => {
     if (comparisonMethod !== "beyond") return;
-    const basePath = preferredSourcePath(history.find(item => item.id === baseVersionId));
-    const targetPath = preferredSourcePath(history.find(item => item.id === targetVersionId));
+    const basePath = boundComparisonPath(history.find(item => item.id === baseVersionId));
+    const targetPath = boundComparisonPath(history.find(item => item.id === targetVersionId));
     if (!beyondLeftPath && basePath) setBeyondLeftPath(basePath);
     if (!beyondRightPath && targetPath) setBeyondRightPath(targetPath);
   }, [comparisonMethod, history, baseVersionId, targetVersionId, beyondLeftPath, beyondRightPath]);
@@ -258,18 +261,14 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2300);
   };
 
-  const rememberVersionSourcePath = (versionId: string, path: string) => {
-    if (!versionId || !path.trim()) return;
-    const normalizedPath = path.trim();
-    const name = normalizedPath.split(/[\\/]/).pop() || normalizedPath;
+  const persistComparisonBindings = (bindings: Array<{ versionId: string; path: string }>) => {
+    const bindingMap = new Map(bindings
+      .filter(binding => binding.versionId && binding.path.trim())
+      .map(binding => [binding.versionId, binding.path.trim()]));
+    if (!bindingMap.size) return;
     const nextHistory = history.map(item => {
-      if (item.id !== versionId) return item;
-      const existing = item.sourcePaths ?? [];
-      if (existing.some(source => source.path.toLowerCase() === normalizedPath.toLowerCase())) return item;
-      return {
-        ...item,
-        sourcePaths: [{ name, path: normalizedPath }, ...existing],
-      };
+      const path = bindingMap.get(item.id);
+      return path ? { ...item, beyondComparePath: path } : item;
     });
     setHistory(nextHistory);
     persistHistory(nextHistory);
@@ -434,6 +433,7 @@ export default function Home() {
 
       const archivableCommit: BaselineCommit = { ...commit };
       delete archivableCommit.sourcePaths;
+      delete archivableCommit.beyondComparePath;
       const manifest = {
         schema: "reqflow-baseline/v1",
         ...archivableCommit,
@@ -544,11 +544,15 @@ export default function Home() {
   const launchBeyondCompare = async () => {
     if (!baseVersionId || !targetVersionId) return notify("请选择基准版本和修改版本");
     if (baseVersionId === targetVersionId) return notify("基准版本和修改版本不能相同");
-    const leftPath = preferredSourcePath(selectedBaseVersion) || beyondLeftPath.trim();
-    const rightPath = preferredSourcePath(selectedTargetVersion) || beyondRightPath.trim();
+    const leftPath = beyondLeftPath.trim() || boundComparisonPath(selectedBaseVersion);
+    const rightPath = beyondRightPath.trim() || boundComparisonPath(selectedTargetVersion);
     if (!leftPath || !rightPath) return notify("所选版本没有保存文档路径，请先选择对应文件");
     setBeyondLeftPath(leftPath);
     setBeyondRightPath(rightPath);
+    persistComparisonBindings([
+      { versionId: baseVersionId, path: leftPath },
+      { versionId: targetVersionId, path: rightPath },
+    ]);
 
     try {
       let executablePath = beyondExecutable.trim();
@@ -793,8 +797,8 @@ export default function Home() {
                   onClick={() => {
                     setComparisonMethod("beyond");
                     setCompareFullscreen(false);
-                    setBeyondLeftPath(preferredSourcePath(selectedBaseVersion));
-                    setBeyondRightPath(preferredSourcePath(selectedTargetVersion));
+                    setBeyondLeftPath(boundComparisonPath(selectedBaseVersion));
+                    setBeyondRightPath(boundComparisonPath(selectedTargetVersion));
                   }}
                 >
                   <b>Beyond Compare</b><small>调用本机程序</small>
@@ -975,7 +979,7 @@ export default function Home() {
                         <select value={baseVersionId} disabled={!history.length} onChange={event => {
                           const nextId = event.target.value;
                           setBaseVersionId(nextId);
-                          setBeyondLeftPath(preferredSourcePath(history.find(item => item.id === nextId)));
+                          setBeyondLeftPath(boundComparisonPath(history.find(item => item.id === nextId)));
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (
@@ -989,7 +993,7 @@ export default function Home() {
                         <select value={targetVersionId} disabled={!history.length} onChange={event => {
                           const nextId = event.target.value;
                           setTargetVersionId(nextId);
-                          setBeyondRightPath(preferredSourcePath(history.find(item => item.id === nextId)));
+                          setBeyondRightPath(boundComparisonPath(history.find(item => item.id === nextId)));
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (
@@ -1006,18 +1010,34 @@ export default function Home() {
                           <input
                             value={beyondLeftPath}
                             onChange={event => setBeyondLeftPath(event.target.value)}
+                            onBlur={() => persistComparisonBindings([
+                              { versionId: baseVersionId, path: beyondLeftPath },
+                            ])}
+                            list={`base-source-paths-${baseVersionId}`}
                             placeholder={selectedBaseVersion?.snapshots?.[0]?.path
                               ? `选择“${selectedBaseVersion.snapshots[0].path}”的本机完整路径`
                               : "输入或选择基准版本文档完整路径"}
                           />
+                          <datalist id={`base-source-paths-${baseVersionId}`}>
+                            {selectedBaseVersion?.sourcePaths?.map(source => (
+                              <option value={source.path} key={`base-source-${source.path}`}>{source.name}</option>
+                            ))}
+                          </datalist>
                           <button
                             onClick={() => void pickBeyondComparePath("document", path => {
                               setBeyondLeftPath(path);
-                              rememberVersionSourcePath(baseVersionId, path);
+                              persistComparisonBindings([{ versionId: baseVersionId, path }]);
                             })}
                             disabled={beyondPicking}
                           >选择文件</button>
                         </div>
+                        <small className="path-binding-note">
+                          {selectedBaseVersion?.beyondComparePath
+                            ? "已绑定手动路径，可继续修改"
+                            : selectedBaseVersion?.sourcePaths?.length
+                              ? "已绑定添加时路径，可手动修改"
+                              : "尚未绑定路径，请手动选择文件"}
+                        </small>
                       </label>
                       <button
                         className="path-swap-button"
@@ -1033,18 +1053,34 @@ export default function Home() {
                           <input
                             value={beyondRightPath}
                             onChange={event => setBeyondRightPath(event.target.value)}
+                            onBlur={() => persistComparisonBindings([
+                              { versionId: targetVersionId, path: beyondRightPath },
+                            ])}
+                            list={`target-source-paths-${targetVersionId}`}
                             placeholder={selectedTargetVersion?.snapshots?.[0]?.path
                               ? `选择“${selectedTargetVersion.snapshots[0].path}”的本机完整路径`
                               : "输入或选择修改版本文档完整路径"}
                           />
+                          <datalist id={`target-source-paths-${targetVersionId}`}>
+                            {selectedTargetVersion?.sourcePaths?.map(source => (
+                              <option value={source.path} key={`target-source-${source.path}`}>{source.name}</option>
+                            ))}
+                          </datalist>
                           <button
                             onClick={() => void pickBeyondComparePath("document", path => {
                               setBeyondRightPath(path);
-                              rememberVersionSourcePath(targetVersionId, path);
+                              persistComparisonBindings([{ versionId: targetVersionId, path }]);
                             })}
                             disabled={beyondPicking}
                           >选择文件</button>
                         </div>
+                        <small className="path-binding-note">
+                          {selectedTargetVersion?.beyondComparePath
+                            ? "已绑定手动路径，可继续修改"
+                            : selectedTargetVersion?.sourcePaths?.length
+                              ? "已绑定添加时路径，可手动修改"
+                              : "尚未绑定路径，请手动选择文件"}
+                        </small>
                       </label>
                     </div>
                   </div>
