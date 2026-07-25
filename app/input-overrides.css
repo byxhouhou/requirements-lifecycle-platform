@@ -1,0 +1,65 @@
+.top-actions {
+  gap: 8px;
+}
+
+.top-actions .ghost,
+.top-actions .primary {
+  padding-left: 12px;
+  padding-right: 12px;
+  font-size: 11px;
+}
+
+.drop-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 17px;
+}
+
+.drop-actions button {
+  border: 1px solid #d8dce5;
+  background: #fff;
+  color: #596274;
+  border-radius: 7px;
+  padding: 8px 13px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.drop-actions .drop-primary {
+  border-color: var(--violet);
+  background: var(--violet);
+  color: #fff;
+}
+
+.drop-zone em {
+  margin-top: 10px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #a0a6b2;
+}
+
+.add-more {
+  display: flex;
+  height: 36px;
+  background: #fafbfc;
+}
+
+.add-more button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #6e5bd1;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.add-more button + button {
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 680px) {
+  .drop-actions {
+    flex-direction: column;
+  }
+}
