@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
+import "./quick-links.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -54,6 +55,12 @@ type LocalFileDescriptor = {
   lastModified: number;
 };
 
+type QuickLink = {
+  id: string;
+  name: string;
+  url: string;
+};
+
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
 type FileHandle = { createWritable: () => Promise<WritableFile> };
 type DirectoryHandle = {
@@ -69,6 +76,7 @@ declare global {
 }
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
+const QUICK_LINKS_STORAGE_KEY = "reqflow-quick-links-v1";
 
 const readBrowserHistory = (): BaselineCommit[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -80,31 +88,79 @@ const readBrowserHistory = (): BaselineCommit[] => {
   }
 };
 
-const loadPersistedHistory = async (): Promise<BaselineCommit[]> => {
+const readBrowserQuickLinks = (): QuickLink[] => {
+  const saved = localStorage.getItem(QUICK_LINKS_STORAGE_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickLinks: QuickLink[] }> => {
   const browserHistory = readBrowserHistory();
+  const browserQuickLinks = readBrowserQuickLinks();
   try {
     const response = await fetch("/api/state", {
       method: "GET",
       headers: { Accept: "application/json" },
     });
     if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
-      return browserHistory;
+      return { history: browserHistory, quickLinks: browserQuickLinks };
     }
-    const payload = await response.json() as { history?: BaselineCommit[] };
-    return Array.isArray(payload.history) ? payload.history : browserHistory;
+    const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[] };
+    return {
+      history: Array.isArray(payload.history) ? payload.history : browserHistory,
+      quickLinks: Array.isArray(payload.quickLinks) ? payload.quickLinks : browserQuickLinks,
+    };
   } catch {
-    return browserHistory;
+    return { history: browserHistory, quickLinks: browserQuickLinks };
   }
 };
 
-const persistHistory = (history: BaselineCommit[]) => {
+const persistState = (history: BaselineCommit[], quickLinks: QuickLink[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  localStorage.setItem(QUICK_LINKS_STORAGE_KEY, JSON.stringify(quickLinks));
   void fetch("/api/state", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schemaVersion: 1, history }),
+    body: JSON.stringify({ schemaVersion: 2, history, quickLinks }),
   }).catch(() => {
     // Development mode has no local EXE persistence API; browser storage remains available.
+  });
+};
+
+const normalizeQuickLink = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed || /^(javascript|data|vbscript):/i.test(trimmed)) return "";
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(trimmed)
+      ? `http://${trimmed}`
+      : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+};
+
+const parseQuickLinkConfig = (content: string): QuickLink[] => {
+  const unquote = (value: string) => value.trim().replace(/^"(.*)"$/s, "$1").replace(/""/g, "\"");
+  return content.replace(/^\uFEFF/, "").split(/\r?\n/).flatMap((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return [];
+    const delimiter = ["\t", ",", "，", ";"].find(item => trimmed.includes(item));
+    if (!delimiter) return [];
+    const separatorIndex = trimmed.indexOf(delimiter);
+    const name = unquote(trimmed.slice(0, separatorIndex));
+    const rawUrl = unquote(trimmed.slice(separatorIndex + delimiter.length));
+    if (index === 0 && /^(按钮名称|名称|name)$/i.test(name) && /^(链接地址|链接|url|address)$/i.test(rawUrl)) return [];
+    const url = normalizeQuickLink(rawUrl);
+    return name && url ? [{ id: crypto.randomUUID(), name, url }] : [];
   });
 };
 
@@ -147,12 +203,17 @@ const renderDiffText = (
 export default function Home() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickLinkFileInputRef = useRef<HTMLInputElement>(null);
+  const quickLinksRef = useRef<HTMLElement>(null);
   const diffViewportRef = useRef<HTMLDivElement>(null);
   const [documents, setDocuments] = useState<ImportedDoc[]>([]);
   const [sourceFolder, setSourceFolder] = useState("");
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
   const [archiveName, setArchiveName] = useState("");
   const [history, setHistory] = useState<BaselineCommit[]>([]);
+  const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
+  const [quickLinkName, setQuickLinkName] = useState("");
+  const [quickLinkUrl, setQuickLinkUrl] = useState("");
   const [version, setVersion] = useState(`BL-${today().replaceAll("-", ".")}-r1`);
   const [commitDate, setCommitDate] = useState(today());
   const [changeType, setChangeType] = useState("建立基线");
@@ -184,7 +245,10 @@ export default function Home() {
   const [editConfirming, setEditConfirming] = useState(false);
 
   useEffect(() => {
-    void loadPersistedHistory().then(setHistory);
+    void loadPersistedState().then(state => {
+      setHistory(state.history);
+      setQuickLinks(state.quickLinks);
+    });
   }, []);
 
   useEffect(() => {
@@ -284,7 +348,7 @@ export default function Home() {
       return path ? { ...item, beyondComparePath: path } : item;
     });
     setHistory(nextHistory);
-    persistHistory(nextHistory);
+    persistState(nextHistory, quickLinks);
   };
 
   const importDocuments = (event: ChangeEvent<HTMLInputElement>, mode: "folder" | "files") => {
@@ -489,7 +553,7 @@ export default function Home() {
       ].join("\n");
       await writeFile(projectFolder, "CHANGELOG.md", changelog);
       setHistory(nextHistory);
-      persistHistory(nextHistory);
+      persistState(nextHistory, quickLinks);
       setNote("");
       notify(`${commit.version} 已建立并写入归档文件夹`);
     } catch (error) {
@@ -605,7 +669,7 @@ export default function Home() {
     if (!deleteTarget) return;
     const nextHistory = history.filter(item => item.id !== deleteTarget.id);
     setHistory(nextHistory);
-    persistHistory(nextHistory);
+    persistState(nextHistory, quickLinks);
     if (baseVersionId === deleteTarget.id) setBaseVersionId("");
     if (targetVersionId === deleteTarget.id) setTargetVersionId("");
     if (baseVersionId === deleteTarget.id || targetVersionId === deleteTarget.id) {
@@ -646,10 +710,49 @@ export default function Home() {
       ? { ...item, type: editType, note: editNote.trim() }
       : item);
     setHistory(nextHistory);
-    persistHistory(nextHistory);
+    persistState(nextHistory, quickLinks);
     const changedVersion = editTarget.version;
     closeRecordEditor();
     notify(`${changedVersion} 的归档信息已更新`);
+  };
+
+  const saveQuickLinks = (nextLinks: QuickLink[]) => {
+    setQuickLinks(nextLinks);
+    persistState(history, nextLinks);
+  };
+
+  const addQuickLink = () => {
+    const name = quickLinkName.trim();
+    const url = normalizeQuickLink(quickLinkUrl);
+    if (!name) return notify("请填写按钮名称");
+    if (!url) return notify("请输入有效的 HTTP 或 HTTPS 链接");
+    saveQuickLinks([...quickLinks, { id: crypto.randomUUID(), name, url }]);
+    setQuickLinkName("");
+    setQuickLinkUrl("");
+    notify(`快捷按钮“${name}”已添加`);
+  };
+
+  const openQuickLink = (link: QuickLink) => {
+    const url = normalizeQuickLink(link.url);
+    if (!url) return notify("该链接格式无效，请删除后重新添加");
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) notify("浏览器阻止了新窗口，请允许此页面打开链接");
+  };
+
+  const importQuickLinks = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const imported = parseQuickLinkConfig(await file.text());
+      if (!imported.length) return notify("配置文件中未识别到有效的“按钮名称,链接地址”");
+      const deduplicated = [...quickLinks, ...imported].filter((link, index, links) =>
+        links.findIndex(item => item.name === link.name && item.url === link.url) === index);
+      saveQuickLinks(deduplicated);
+      notify(`已导入 ${deduplicated.length - quickLinks.length} 个快捷按钮`);
+    } catch {
+      notify("配置文件读取失败，请使用 UTF-8 编码的 CSV 或 TXT 文件");
+    }
   };
 
   return (
@@ -657,7 +760,11 @@ export default function Home() {
       <aside className="rail">
         <div className="brand-mark">R</div>
         <button className="rail-btn active" aria-label="需求输入">⇩</button>
-        <button className="rail-btn" aria-label="工作流">⌘</button>
+        <button
+          className="rail-btn"
+          aria-label="快捷路径工具"
+          onClick={() => quickLinksRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        >↗</button>
         <button className="rail-btn" aria-label="基线记录">▤</button>
         <button className="rail-btn" aria-label="归档管理">▣</button>
         <div className="rail-spacer" />
@@ -701,6 +808,73 @@ export default function Home() {
           <div><span>输入容量</span><strong>{readableSize(totalSize)}</strong><small>待归档文件</small></div>
           <div><span>已有基线</span><strong>{history.length}</strong><small>次版本提交</small></div>
           <div><span>当前归档</span><strong className="folder-metric">{archiveName || "尚未设置"}</strong><small>{archiveName ? "可写入" : "请选择文件夹"}</small></div>
+        </section>
+
+        <section className="quick-links card" ref={quickLinksRef}>
+          <div className="quick-links-heading">
+            <div>
+              <span className="section-kicker">QUICK PATHS</span>
+              <h2>快捷路径工具</h2>
+              <p>保存常用在线地址，点击按钮后由浏览器直接打开。</p>
+            </div>
+            <button className="quick-import" onClick={() => quickLinkFileInputRef.current?.click()}>
+              导入配置文件
+            </button>
+            <input
+              ref={quickLinkFileInputRef}
+              className="hidden-input"
+              type="file"
+              accept=".csv,.txt,text/csv,text/plain"
+              onChange={event => void importQuickLinks(event)}
+            />
+          </div>
+
+          <div className="quick-link-editor">
+            <label>
+              <span>按钮名称</span>
+              <input
+                value={quickLinkName}
+                onChange={event => setQuickLinkName(event.target.value)}
+                placeholder="例如：项目需求库"
+              />
+            </label>
+            <label>
+              <span>在线地址 / 链接</span>
+              <input
+                value={quickLinkUrl}
+                onChange={event => setQuickLinkUrl(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter") addQuickLink();
+                }}
+                placeholder="https://example.com 或内网地址"
+              />
+            </label>
+            <button onClick={addQuickLink}>添加快捷按钮</button>
+          </div>
+
+          <div className="quick-link-list">
+            {quickLinks.length ? quickLinks.map(link => (
+              <div className="quick-link-item" key={link.id}>
+                <button className="quick-open" onClick={() => openQuickLink(link)}>
+                  <span>↗</span>
+                  <strong>{link.name}</strong>
+                  <small>{link.url}</small>
+                </button>
+                <button
+                  className="quick-remove"
+                  aria-label={`删除快捷路径 ${link.name}`}
+                  onClick={() => {
+                    saveQuickLinks(quickLinks.filter(item => item.id !== link.id));
+                    notify(`快捷按钮“${link.name}”已删除`);
+                  }}
+                >×</button>
+              </div>
+            )) : (
+              <div className="quick-links-empty">
+                尚未添加快捷路径。也可以导入配置文件，格式：按钮名称,链接地址
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="main-grid">

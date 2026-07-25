@@ -66,3 +66,14 @@ test("Beyond Compare resolves selected version paths at launch time", async () =
   assert.match(page, /setBeyondLeftPath\(leftPath\)/);
   assert.match(page, /setBeyondRightPath\(rightPath\)/);
 });
+
+test("quick path tool imports, persists, validates and opens configured links", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /parseQuickLinkConfig/);
+  assert.match(page, /normalizeQuickLink/);
+  assert.match(page, /quickLinks: Array\.isArray\(payload\.quickLinks\)/);
+  assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
+  assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
+  assert.match(page, /按钮名称,链接地址/);
+});
