@@ -22,9 +22,12 @@ test("Windows release includes a verified standalone updater", async () => {
   assert.equal(actualHash.toUpperCase(), expectedHash?.toUpperCase());
 });
 
-test("Windows launcher exposes only explicit local Beyond Compare integration routes", async () => {
+test("Windows launcher exposes explicit local file and Beyond Compare integration routes", async () => {
   const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
 
+  assert.match(launcher, /\/api\/local-files\/pick/);
+  assert.match(launcher, /\/api\/local-files\/read\//);
+  assert.match(launcher, /localFileTokens/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/status/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/pick/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/launch/);

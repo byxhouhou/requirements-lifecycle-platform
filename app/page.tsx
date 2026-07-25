@@ -11,8 +11,15 @@ type ImportedDoc = {
   file: File;
   name: string;
   path: string;
+  absolutePath?: string;
   size: number;
   format: "WORD" | "WPS" | "PDF";
+};
+
+type SourceDocumentPath = {
+  name: string;
+  path: string;
+  relativePath?: string;
 };
 
 type BaselineCommit = {
@@ -26,6 +33,7 @@ type BaselineCommit = {
   fileCount: number;
   createdAt: string;
   snapshots?: SnapshotFile[];
+  sourcePaths?: SourceDocumentPath[];
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
@@ -34,6 +42,15 @@ type BeyondCompareStatus = {
   installed: boolean;
   executablePath: string;
   version: string;
+};
+
+type LocalFileDescriptor = {
+  token: string;
+  name: string;
+  path: string;
+  relativePath: string;
+  size: number;
+  lastModified: number;
 };
 
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
@@ -104,6 +121,8 @@ const today = () => {
 
 const safeName = (value: string) => value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim();
 
+const preferredSourcePath = (record?: BaselineCommit) => record?.sourcePaths?.[0]?.path ?? "";
+
 const writeFile = async (folder: DirectoryHandle, name: string, data: string | Blob) => {
   const file = await folder.getFileHandle(safeName(name), { create: true });
   const writer = await file.createWritable();
@@ -151,7 +170,8 @@ export default function Home() {
   const [beyondExecutable, setBeyondExecutable] = useState("");
   const [beyondLeftPath, setBeyondLeftPath] = useState("");
   const [beyondRightPath, setBeyondRightPath] = useState("");
-  const [beyondWorking, setBeyondWorking] = useState(false);
+  const [beyondPicking, setBeyondPicking] = useState(false);
+  const [selectingDocuments, setSelectingDocuments] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BaselineCommit | null>(null);
   const [editTarget, setEditTarget] = useState<BaselineCommit | null>(null);
   const [editType, setEditType] = useState("");
@@ -224,9 +244,35 @@ export default function Home() {
       setBaseVersionId(comparableVersions[1]?.id ?? comparableVersions[0].id);
     }
   }, [comparableVersions, baseVersionId, targetVersionId]);
+
+  useEffect(() => {
+    if (comparisonMethod !== "beyond") return;
+    const basePath = preferredSourcePath(history.find(item => item.id === baseVersionId));
+    const targetPath = preferredSourcePath(history.find(item => item.id === targetVersionId));
+    if (!beyondLeftPath && basePath) setBeyondLeftPath(basePath);
+    if (!beyondRightPath && targetPath) setBeyondRightPath(targetPath);
+  }, [comparisonMethod, history, baseVersionId, targetVersionId, beyondLeftPath, beyondRightPath]);
+
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2300);
+  };
+
+  const rememberVersionSourcePath = (versionId: string, path: string) => {
+    if (!versionId || !path.trim()) return;
+    const normalizedPath = path.trim();
+    const name = normalizedPath.split(/[\\/]/).pop() || normalizedPath;
+    const nextHistory = history.map(item => {
+      if (item.id !== versionId) return item;
+      const existing = item.sourcePaths ?? [];
+      if (existing.some(source => source.path.toLowerCase() === normalizedPath.toLowerCase())) return item;
+      return {
+        ...item,
+        sourcePaths: [{ name, path: normalizedPath }, ...existing],
+      };
+    });
+    setHistory(nextHistory);
+    persistHistory(nextHistory);
   };
 
   const importDocuments = (event: ChangeEvent<HTMLInputElement>, mode: "folder" | "files") => {
@@ -251,6 +297,74 @@ export default function Home() {
       ? mode === "folder" ? `已从文件夹识别 ${mapped.length} 份需求文档` : `已添加 ${mapped.length} 份需求文档`
       : "未发现受支持的 Word、WPS 或 PDF 文档");
     event.target.value = "";
+  };
+
+  const chooseDocuments = async (mode: "folder" | "files") => {
+    setSelectingDocuments(true);
+    try {
+      const response = await fetch("/api/local-files/pick", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ReqFlow-Integration": "local-files",
+        },
+        body: JSON.stringify({ kind: mode }),
+      });
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+        throw new Error("native_picker_unavailable");
+      }
+      const payload = await response.json() as {
+        selected?: boolean;
+        rootName?: string;
+        files?: LocalFileDescriptor[];
+      };
+      if (!payload.selected) return;
+      const descriptors = payload.files ?? [];
+      if (!descriptors.length) {
+        notify("所选位置没有受支持的 Word、WPS 或 PDF 文档");
+        return;
+      }
+
+      const mapped = await Promise.all(descriptors.map(async descriptor => {
+        const fileResponse = await fetch(`/api/local-files/read/${encodeURIComponent(descriptor.token)}`);
+        if (!fileResponse.ok) throw new Error("local_file_read_failed");
+        const fileBlob = await fileResponse.blob();
+        const file = new File([fileBlob], descriptor.name, {
+          type: fileBlob.type,
+          lastModified: descriptor.lastModified,
+        });
+        const extension = descriptor.name.split(".").pop()?.toLowerCase();
+        const format = extension === "pdf" ? "PDF" : extension === "wps" ? "WPS" : "WORD";
+        return {
+          id: `${descriptor.path}-${descriptor.size}-${descriptor.lastModified}`,
+          file,
+          name: descriptor.name,
+          path: descriptor.relativePath || descriptor.name,
+          absolutePath: descriptor.path,
+          size: descriptor.size,
+          format,
+        } satisfies ImportedDoc;
+      }));
+
+      if (mode === "folder") {
+        setDocuments(mapped);
+        setSourceFolder(payload.rootName || mapped[0]?.path.split("/")[0] || "");
+      } else {
+        setDocuments(current => {
+          const combined = [...current, ...mapped];
+          return combined.filter((doc, index) => combined.findIndex(item => item.id === doc.id) === index);
+        });
+        setSourceFolder(current => current ? `${current} + 手动选择` : "手动选择的文件");
+      }
+      notify(mode === "folder"
+        ? `已从文件夹识别 ${mapped.length} 份需求文档，并记录原始路径`
+        : `已添加 ${mapped.length} 份需求文档，并记录原始路径`);
+    } catch {
+      if (mode === "folder") folderInputRef.current?.click();
+      else fileInputRef.current?.click();
+    } finally {
+      setSelectingDocuments(false);
+    }
   };
 
   const chooseArchive = async () => {
@@ -283,6 +397,13 @@ export default function Home() {
         ((hash << 5) - hash + doc.name.length + doc.size + doc.file.lastModified) | 0, Date.now() & 0xfffffff))
         .toString(16).slice(0, 7).padStart(7, "0");
       const snapshots = await snapshotDocuments(documents);
+      const sourcePaths = documents
+        .filter(doc => Boolean(doc.absolutePath))
+        .map(doc => ({
+          name: doc.name,
+          path: doc.absolutePath as string,
+          relativePath: doc.path,
+        }));
       const commit: BaselineCommit = {
         id: commitId,
         version: version.trim(),
@@ -294,6 +415,7 @@ export default function Home() {
         fileCount: documents.length,
         createdAt: new Date().toISOString(),
         snapshots,
+        sourcePaths,
       };
       const projectFolder = await archiveHandle.getDirectoryHandle("系统需求基线", { create: true });
       const versionFolder = await projectFolder.getDirectoryHandle(safeName(`${commitDate}_${version}_${commitId}`), { create: true });
@@ -303,9 +425,11 @@ export default function Home() {
         await writeFile(filesFolder, `${String(index + 1).padStart(2, "0")}_${doc.name}`, doc.file);
       }
 
+      const archivableCommit: BaselineCommit = { ...commit };
+      delete archivableCommit.sourcePaths;
       const manifest = {
         schema: "reqflow-baseline/v1",
-        ...commit,
+        ...archivableCommit,
         sourceFolder,
         documents: documents.map(doc => ({
           name: doc.name,
@@ -390,7 +514,7 @@ export default function Home() {
     kind: "program" | "document",
     apply: (path: string) => void,
   ) => {
-    setBeyondWorking(true);
+    setBeyondPicking(true);
     try {
       const response = await fetch("/api/integrations/beyond-compare/pick", {
         method: "POST",
@@ -406,7 +530,7 @@ export default function Home() {
     } catch {
       notify("本机文件选择不可用，请直接粘贴完整路径");
     } finally {
-      setBeyondWorking(false);
+      setBeyondPicking(false);
     }
   };
 
@@ -415,7 +539,6 @@ export default function Home() {
     if (baseVersionId === targetVersionId) return notify("基准版本和修改版本不能相同");
     if (!beyondExecutable.trim()) return notify("请选择或填写 Beyond Compare 程序路径");
     if (!beyondLeftPath.trim() || !beyondRightPath.trim()) return notify("请填写左右两个文档路径");
-    setBeyondWorking(true);
     try {
       const response = await fetch("/api/integrations/beyond-compare/launch", {
         method: "POST",
@@ -435,8 +558,6 @@ export default function Home() {
     } catch (error) {
       console.error(error);
       notify("启动失败，请检查程序和文档路径");
-    } finally {
-      setBeyondWorking(false);
     }
   };
 
@@ -513,8 +634,8 @@ export default function Home() {
             </div>
           </div>
           <div className="top-actions">
-            <button className="ghost" onClick={() => fileInputRef.current?.click()}>选择文件</button>
-            <button className="ghost" onClick={() => folderInputRef.current?.click()}>选择文件夹</button>
+            <button className="ghost" onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>选择文件</button>
+            <button className="ghost" onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>选择文件夹</button>
             <button className="primary" onClick={createBaseline} disabled={working}>
               {working ? "正在归档…" : "提交新基线"}
             </button>
@@ -556,8 +677,8 @@ export default function Home() {
                   <strong>添加需求输入文档</strong>
                   <small>可选择不同目录下的文件，也可一次导入整个文件夹</small>
                   <div className="drop-actions">
-                    <button className="drop-primary" onClick={() => fileInputRef.current?.click()}>选择一个或多个文件</button>
-                    <button onClick={() => folderInputRef.current?.click()}>选择整个文件夹</button>
+                    <button className="drop-primary" onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>选择一个或多个文件</button>
+                    <button onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>选择整个文件夹</button>
                   </div>
                   <em>支持 .doc、.docx、.wps 和 .pdf</em>
                 </div>
@@ -566,14 +687,14 @@ export default function Home() {
                   {documents.map(doc => (
                     <article className="doc-row" key={doc.id}>
                       <div className={`format-icon ${doc.format.toLowerCase()}`}>{doc.format === "WORD" ? "W" : doc.format === "PDF" ? "P" : "S"}</div>
-                      <div className="doc-info"><strong>{doc.name}</strong><small>{doc.path} · {readableSize(doc.size)}</small></div>
+                      <div className="doc-info"><strong>{doc.name}</strong><small>{doc.absolutePath || doc.path} · {readableSize(doc.size)}</small></div>
                       <span className="ready-dot">● 待归档</span>
                       <button onClick={() => removeDoc(doc.id)} aria-label={`移除 ${doc.name}`}>×</button>
                     </article>
                   ))}
                   <div className="add-more">
-                    <button onClick={() => fileInputRef.current?.click()}>＋ 追加文件</button>
-                    <button onClick={() => folderInputRef.current?.click()}>↻ 重新选择文件夹</button>
+                    <button onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>＋ 追加文件</button>
+                    <button onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>↻ 重新选择文件夹</button>
                   </div>
                 </div>
               )}
@@ -634,6 +755,8 @@ export default function Home() {
                   onClick={() => {
                     setComparisonMethod("beyond");
                     setCompareFullscreen(false);
+                    setBeyondLeftPath(preferredSourcePath(selectedBaseVersion));
+                    setBeyondRightPath(preferredSourcePath(selectedTargetVersion));
                   }}
                 >
                   <b>Beyond Compare</b><small>调用本机程序</small>
@@ -785,7 +908,7 @@ export default function Home() {
                     <div>
                       <strong>{beyondStatus?.installed ? `已检测到 Beyond Compare ${beyondStatus.version}` : "未自动检测到 Beyond Compare"}</strong>
                       <small>{beyondStatus?.installed
-                        ? "已使用本机程序；选择基准版本和修改版本，再填写对应文档路径。"
+                        ? "已使用本机程序；新归档版本会自动带入当时导入的原始文档路径。"
                         : "未找到本机程序，请先选择 BCompare.exe，再填写两个版本的文档路径。"}</small>
                     </div>
                   </div>
@@ -802,7 +925,7 @@ export default function Home() {
                           />
                           <button
                             onClick={() => void pickBeyondComparePath("program", setBeyondExecutable)}
-                            disabled={beyondWorking}
+                            disabled={beyondPicking}
                           >选择程序</button>
                         </div>
                       </label>
@@ -812,8 +935,9 @@ export default function Home() {
                       <label>
                         <span>基准版本</span>
                         <select value={baseVersionId} disabled={!history.length} onChange={event => {
-                          setBaseVersionId(event.target.value);
-                          setBeyondLeftPath("");
+                          const nextId = event.target.value;
+                          setBaseVersionId(nextId);
+                          setBeyondLeftPath(preferredSourcePath(history.find(item => item.id === nextId)));
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (
@@ -825,8 +949,9 @@ export default function Home() {
                       <label>
                         <span>修改版本</span>
                         <select value={targetVersionId} disabled={!history.length} onChange={event => {
-                          setTargetVersionId(event.target.value);
-                          setBeyondRightPath("");
+                          const nextId = event.target.value;
+                          setTargetVersionId(nextId);
+                          setBeyondRightPath(preferredSourcePath(history.find(item => item.id === nextId)));
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (
@@ -848,8 +973,11 @@ export default function Home() {
                               : "输入或选择基准版本文档完整路径"}
                           />
                           <button
-                            onClick={() => void pickBeyondComparePath("document", setBeyondLeftPath)}
-                            disabled={beyondWorking}
+                            onClick={() => void pickBeyondComparePath("document", path => {
+                              setBeyondLeftPath(path);
+                              rememberVersionSourcePath(baseVersionId, path);
+                            })}
+                            disabled={beyondPicking}
                           >选择文件</button>
                         </div>
                       </label>
@@ -872,8 +1000,11 @@ export default function Home() {
                               : "输入或选择修改版本文档完整路径"}
                           />
                           <button
-                            onClick={() => void pickBeyondComparePath("document", setBeyondRightPath)}
-                            disabled={beyondWorking}
+                            onClick={() => void pickBeyondComparePath("document", path => {
+                              setBeyondRightPath(path);
+                              rememberVersionSourcePath(targetVersionId, path);
+                            })}
+                            disabled={beyondPicking}
                           >选择文件</button>
                         </div>
                       </label>
@@ -881,11 +1012,9 @@ export default function Home() {
                   </div>
 
                   <div className="beyond-actions">
-                    <p>路径只发送给当前电脑上的 ReqFlow 启动器，不会上传或保存到外部服务。</p>
-                    <button onClick={() => void launchBeyondCompare()} disabled={beyondWorking}>
-                      {beyondWorking
-                        ? "正在处理…"
-                        : `对比 ${selectedBaseVersion?.version || "基准版本"} ↔ ${selectedTargetVersion?.version || "修改版本"}`}
+                    <p>点击后直接启动本机 Beyond Compare；路径仅保存在当前电脑，不会写入归档或发送到外部服务。</p>
+                    <button onClick={() => void launchBeyondCompare()}>
+                      {`打开 Beyond Compare：${selectedBaseVersion?.version || "基准版本"} ↔ ${selectedTargetVersion?.version || "修改版本"}`}
                     </button>
                   </div>
                 </div>

@@ -66,6 +66,8 @@ namespace ReqFlowLauncher
         private readonly TcpListener listener;
         private readonly CancellationTokenSource cancellation = new CancellationTokenSource();
         private readonly NotifyIcon trayIcon;
+        private readonly Dictionary<string, string> localFileTokens = new Dictionary<string, string>();
+        private readonly object localFileTokenLock = new object();
 
         internal ReqFlowContext()
         {
@@ -175,6 +177,11 @@ namespace ReqFlowLauncher
                         HandleBeyondCompareRequest(stream, request);
                         return;
                     }
+                    if (request.Path.StartsWith("/api/local-files/", StringComparison.Ordinal))
+                    {
+                        HandleLocalFilesRequest(stream, request);
+                        return;
+                    }
 
                     if (request.Method != "GET" && request.Method != "HEAD")
                     {
@@ -239,6 +246,106 @@ namespace ReqFlowLauncher
             }
 
             WriteResponse(stream, 405, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"error\":\"method_not_allowed\"}"), false);
+        }
+
+        private void HandleLocalFilesRequest(NetworkStream stream, HttpRequest request)
+        {
+            try
+            {
+                var requestPath = request.Path.Split('?')[0];
+                if (requestPath.StartsWith("/api/local-files/read/", StringComparison.Ordinal)
+                    && request.Method == "GET")
+                {
+                    var token = Uri.UnescapeDataString(requestPath.Substring("/api/local-files/read/".Length));
+                    string filePath;
+                    lock (localFileTokenLock)
+                    {
+                        localFileTokens.TryGetValue(token, out filePath);
+                    }
+                    if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                    {
+                        WriteJson(stream, 404, new { error = "local_file_not_found" });
+                        return;
+                    }
+                    var fileInfo = new FileInfo(filePath);
+                    if (fileInfo.Length > 200L * 1024 * 1024)
+                    {
+                        WriteJson(stream, 413, new { error = "local_file_too_large" });
+                        return;
+                    }
+                    WriteResponse(stream, 200, ContentType(filePath), File.ReadAllBytes(filePath), false);
+                    return;
+                }
+
+                if (requestPath != "/api/local-files/pick")
+                {
+                    WriteJson(stream, 404, new { error = "local_file_endpoint_not_found" });
+                    return;
+                }
+                if (request.Method != "POST")
+                {
+                    WriteJson(stream, 405, new { error = "method_not_allowed" });
+                    return;
+                }
+
+                string integrationHeader;
+                if (!request.Headers.TryGetValue("X-ReqFlow-Integration", out integrationHeader)
+                    || integrationHeader != "local-files")
+                {
+                    WriteJson(stream, 403, new { error = "integration_header_required" });
+                    return;
+                }
+
+                var payload = request.Body.Length == 0
+                    ? new Dictionary<string, object>()
+                    : Json.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(request.Body));
+                var kind = PayloadString(payload, "kind");
+                var selection = PickLocalDocuments(kind == "folder");
+                if (selection == null)
+                {
+                    WriteJson(stream, 200, new { selected = false, rootName = "", files = new object[0] });
+                    return;
+                }
+
+                var files = new List<object>();
+                foreach (var selectedPath in selection.Paths)
+                {
+                    var fileInfo = new FileInfo(selectedPath);
+                    var token = Guid.NewGuid().ToString("N");
+                    lock (localFileTokenLock)
+                    {
+                        localFileTokens[token] = selectedPath;
+                    }
+                    var relativePath = fileInfo.Name;
+                    if (!string.IsNullOrEmpty(selection.RootPath))
+                    {
+                        relativePath = Path.GetFileName(selection.RootPath) + "/"
+                            + selectedPath.Substring(selection.RootPath.Length)
+                                .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                .Replace(Path.DirectorySeparatorChar, '/');
+                    }
+                    files.Add(new
+                    {
+                        token = token,
+                        name = fileInfo.Name,
+                        path = fileInfo.FullName,
+                        relativePath = relativePath,
+                        size = fileInfo.Length,
+                        lastModified = (long)(fileInfo.LastWriteTimeUtc
+                            - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds
+                    });
+                }
+                WriteJson(stream, 200, new
+                {
+                    selected = true,
+                    rootName = string.IsNullOrEmpty(selection.RootPath) ? "" : Path.GetFileName(selection.RootPath),
+                    files = files
+                });
+            }
+            catch (Exception error)
+            {
+                WriteJson(stream, 400, new { error = error.Message });
+            }
         }
 
         private void HandleBeyondCompareRequest(NetworkStream stream, HttpRequest request)
@@ -405,6 +512,73 @@ namespace ReqFlowLauncher
             return selectedPath;
         }
 
+        private static LocalDocumentSelection PickLocalDocuments(bool folder)
+        {
+            LocalDocumentSelection selection = null;
+            Exception dialogError = null;
+            var dialogThread = new Thread((ThreadStart)delegate
+            {
+                try
+                {
+                    if (folder)
+                    {
+                        using (var dialog = new FolderBrowserDialog())
+                        {
+                            dialog.Description = "Select a folder containing Word, WPS, or PDF documents";
+                            dialog.ShowNewFolderButton = false;
+                            if (dialog.ShowDialog() != DialogResult.OK) return;
+                            var paths = new List<string>();
+                            foreach (var path in Directory.GetFiles(dialog.SelectedPath, "*", SearchOption.AllDirectories))
+                            {
+                                if (IsSupportedDocument(path)) paths.Add(Path.GetFullPath(path));
+                                if (paths.Count >= 1000) break;
+                            }
+                            selection = new LocalDocumentSelection
+                            {
+                                RootPath = Path.GetFullPath(dialog.SelectedPath),
+                                Paths = paths
+                            };
+                        }
+                    }
+                    else
+                    {
+                        using (var dialog = new OpenFileDialog())
+                        {
+                            dialog.Title = "Select requirement documents";
+                            dialog.Filter = "Requirement documents (*.doc;*.docx;*.wps;*.pdf)|*.doc;*.docx;*.wps;*.pdf";
+                            dialog.CheckFileExists = true;
+                            dialog.Multiselect = true;
+                            dialog.RestoreDirectory = true;
+                            if (dialog.ShowDialog() != DialogResult.OK) return;
+                            selection = new LocalDocumentSelection
+                            {
+                                RootPath = "",
+                                Paths = new List<string>(dialog.FileNames)
+                            };
+                        }
+                    }
+                }
+                catch (Exception error)
+                {
+                    dialogError = error;
+                }
+            });
+            dialogThread.SetApartmentState(ApartmentState.STA);
+            dialogThread.Start();
+            dialogThread.Join();
+            if (dialogError != null) throw dialogError;
+            return selection;
+        }
+
+        private static bool IsSupportedDocument(string path)
+        {
+            var extension = Path.GetExtension(path);
+            return string.Equals(extension, ".doc", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".docx", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".wps", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string ValidateBeyondCompareExecutable(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new InvalidDataException("未填写 Beyond Compare 程序路径。");
@@ -551,6 +725,12 @@ namespace ReqFlowLauncher
             internal string Path;
             internal byte[] Body;
             internal Dictionary<string, string> Headers;
+        }
+
+        private sealed class LocalDocumentSelection
+        {
+            internal string RootPath;
+            internal List<string> Paths;
         }
     }
 }
