@@ -45,8 +45,11 @@ type RawDiff = {
   rightNumber?: number;
 };
 
-type CompareOptions = {
+export type DiffAlgorithm = "balanced" | "precise" | "fast";
+
+export type CompareOptions = {
   ignoreWhitespace?: boolean;
+  algorithm?: DiffAlgorithm;
 };
 
 const MAX_LINES_PER_FILE = 2000;
@@ -175,6 +178,278 @@ const lineSimilarity = (left: string, right: string) => {
   return (2 * overlap) / (Math.max(1, a.length - 1) + Math.max(1, b.length - 1));
 };
 
+type Anchor = {
+  left: number;
+  right: number;
+};
+
+const fallbackRawDiff = (
+  left: string[],
+  right: string[],
+  leftOffset: number,
+  rightOffset: number,
+): RawDiff[] => [
+  ...left.map((line, index): RawDiff => ({
+    type: "deleted",
+    left: line,
+    right: "",
+    leftNumber: leftOffset + index + 1,
+  })),
+  ...right.map((line, index): RawDiff => ({
+    type: "added",
+    left: "",
+    right: line,
+    rightNumber: rightOffset + index + 1,
+  })),
+];
+
+const backtrackMyers = (
+  trace: Int32Array[],
+  distance: number,
+  left: string[],
+  right: string[],
+  leftOffset: number,
+  rightOffset: number,
+  vectorOffset: number,
+) => {
+  const result: RawDiff[] = [];
+  let x = left.length;
+  let y = right.length;
+  for (let d = distance; d >= 0; d--) {
+    const vector = trace[d];
+    const diagonal = x - y;
+    const cameFromDown = diagonal === -d
+      || (diagonal !== d
+        && vector[vectorOffset + diagonal - 1] < vector[vectorOffset + diagonal + 1]);
+    const previousDiagonal = cameFromDown ? diagonal + 1 : diagonal - 1;
+    const previousX = d === 0 ? 0 : vector[vectorOffset + previousDiagonal];
+    const previousY = previousX - previousDiagonal;
+
+    while (x > previousX && y > previousY) {
+      result.push({
+        type: "same",
+        left: left[x - 1],
+        right: right[y - 1],
+        leftNumber: leftOffset + x,
+        rightNumber: rightOffset + y,
+      });
+      x--; y--;
+    }
+    if (d === 0) break;
+    if (x === previousX) {
+      y--;
+      result.push({
+        type: "added",
+        left: "",
+        right: right[y],
+        rightNumber: rightOffset + y + 1,
+      });
+    } else {
+      x--;
+      result.push({
+        type: "deleted",
+        left: left[x],
+        right: "",
+        leftNumber: leftOffset + x + 1,
+      });
+    }
+  }
+  return result.reverse();
+};
+
+const myersRawDiff = (
+  left: string[],
+  right: string[],
+  normalizedLeft: string[],
+  normalizedRight: string[],
+  leftOffset: number,
+  rightOffset: number,
+  distanceLimit: number,
+) => {
+  if (!left.length || !right.length) {
+    return fallbackRawDiff(left, right, leftOffset, rightOffset);
+  }
+
+  const maximumDistance = left.length + right.length;
+  const limit = Math.min(maximumDistance, distanceLimit);
+  if (Math.abs(left.length - right.length) > limit) {
+    return fallbackRawDiff(left, right, leftOffset, rightOffset);
+  }
+
+  const vectorOffset = limit + 1;
+  let vector = new Int32Array(limit * 2 + 3);
+  vector.fill(-1);
+  vector[vectorOffset + 1] = 0;
+  const trace: Int32Array[] = [];
+
+  for (let distance = 0; distance <= limit; distance++) {
+    trace.push(vector.slice());
+    for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
+      const down = diagonal === -distance
+        || (diagonal !== distance
+          && vector[vectorOffset + diagonal - 1] < vector[vectorOffset + diagonal + 1]);
+      let x = down
+        ? vector[vectorOffset + diagonal + 1]
+        : vector[vectorOffset + diagonal - 1] + 1;
+      let y = x - diagonal;
+      while (
+        x < left.length
+        && y < right.length
+        && normalizedLeft[x] === normalizedRight[y]
+      ) {
+        x++; y++;
+      }
+      vector[vectorOffset + diagonal] = x;
+      if (x >= left.length && y >= right.length) {
+        return backtrackMyers(
+          trace,
+          distance,
+          left,
+          right,
+          leftOffset,
+          rightOffset,
+          vectorOffset,
+        );
+      }
+    }
+  }
+  return fallbackRawDiff(left, right, leftOffset, rightOffset);
+};
+
+const positionsByLine = (lines: string[]) => {
+  const positions = new Map<string, number[]>();
+  lines.forEach((line, index) => {
+    if (!line) return;
+    const list = positions.get(line);
+    if (list) list.push(index);
+    else positions.set(line, [index]);
+  });
+  return positions;
+};
+
+const longestIncreasingAnchors = (candidates: Anchor[]) => {
+  if (!candidates.length) return [];
+  candidates.sort((a, b) => a.left - b.left || b.right - a.right);
+  const tails: number[] = [];
+  const previous = new Int32Array(candidates.length);
+  previous.fill(-1);
+
+  candidates.forEach((candidate, index) => {
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (candidates[tails[middle]].right < candidate.right) low = middle + 1;
+      else high = middle;
+    }
+    if (low > 0) previous[index] = tails[low - 1];
+    tails[low] = index;
+  });
+
+  const anchors: Anchor[] = [];
+  let cursor = tails.at(-1) ?? -1;
+  while (cursor >= 0) {
+    anchors.push(candidates[cursor]);
+    cursor = previous[cursor];
+  }
+  return anchors.reverse();
+};
+
+const findAnchors = (
+  normalizedLeft: string[],
+  normalizedRight: string[],
+  maximumFrequency: number,
+) => {
+  const leftPositions = positionsByLine(normalizedLeft);
+  const rightPositions = positionsByLine(normalizedRight);
+  const candidates: Anchor[] = [];
+
+  leftPositions.forEach((leftMatches, line) => {
+    const rightMatches = rightPositions.get(line);
+    if (
+      !rightMatches
+      || leftMatches.length > maximumFrequency
+      || rightMatches.length > maximumFrequency
+    ) return;
+    leftMatches.forEach(leftIndex => {
+      rightMatches.forEach(rightIndex => {
+        candidates.push({ left: leftIndex, right: rightIndex });
+      });
+    });
+  });
+  return longestIncreasingAnchors(candidates);
+};
+
+const hybridRawDiff = (
+  left: string[],
+  right: string[],
+  normalizedLeft: string[],
+  normalizedRight: string[],
+  leftOffset: number,
+  rightOffset: number,
+  algorithm: DiffAlgorithm,
+) => {
+  const distanceLimit = algorithm === "precise" ? 1200 : algorithm === "balanced" ? 600 : 160;
+  if (algorithm === "precise") {
+    return myersRawDiff(
+      left,
+      right,
+      normalizedLeft,
+      normalizedRight,
+      leftOffset,
+      rightOffset,
+      distanceLimit,
+    );
+  }
+
+  const anchors = findAnchors(normalizedLeft, normalizedRight, algorithm === "balanced" ? 4 : 1);
+  if (!anchors.length) {
+    return myersRawDiff(
+      left,
+      right,
+      normalizedLeft,
+      normalizedRight,
+      leftOffset,
+      rightOffset,
+      distanceLimit,
+    );
+  }
+
+  const result: RawDiff[] = [];
+  let leftCursor = 0;
+  let rightCursor = 0;
+  anchors.forEach(anchor => {
+    result.push(...myersRawDiff(
+      left.slice(leftCursor, anchor.left),
+      right.slice(rightCursor, anchor.right),
+      normalizedLeft.slice(leftCursor, anchor.left),
+      normalizedRight.slice(rightCursor, anchor.right),
+      leftOffset + leftCursor,
+      rightOffset + rightCursor,
+      distanceLimit,
+    ));
+    result.push({
+      type: "same",
+      left: left[anchor.left],
+      right: right[anchor.right],
+      leftNumber: leftOffset + anchor.left + 1,
+      rightNumber: rightOffset + anchor.right + 1,
+    });
+    leftCursor = anchor.left + 1;
+    rightCursor = anchor.right + 1;
+  });
+  result.push(...myersRawDiff(
+    left.slice(leftCursor),
+    right.slice(rightCursor),
+    normalizedLeft.slice(leftCursor),
+    normalizedRight.slice(rightCursor),
+    leftOffset + leftCursor,
+    rightOffset + rightCursor,
+    distanceLimit,
+  ));
+  return result;
+};
+
 const buildRawDiff = (left: string[], right: string[], options: CompareOptions) => {
   const normalizedLeft = left.map(line => normalizeLine(line, options));
   const normalizedRight = right.map(line => normalizeLine(line, options));
@@ -192,20 +467,6 @@ const buildRawDiff = (left: string[], right: string[], options: CompareOptions) 
     && normalizedLeft[left.length - 1 - suffix] === normalizedRight[right.length - 1 - suffix]
   ) suffix++;
 
-  const leftMiddle = normalizedLeft.slice(prefix, left.length - suffix);
-  const rightMiddle = normalizedRight.slice(prefix, right.length - suffix);
-  const matrix = Array.from(
-    { length: leftMiddle.length + 1 },
-    () => new Uint16Array(rightMiddle.length + 1),
-  );
-  for (let i = leftMiddle.length - 1; i >= 0; i--) {
-    for (let j = rightMiddle.length - 1; j >= 0; j--) {
-      matrix[i][j] = leftMiddle[i] === rightMiddle[j]
-        ? matrix[i + 1][j + 1] + 1
-        : Math.max(matrix[i + 1][j], matrix[i][j + 1]);
-    }
-  }
-
   const raw: RawDiff[] = [];
   for (let index = 0; index < prefix; index++) {
     raw.push({
@@ -217,43 +478,17 @@ const buildRawDiff = (left: string[], right: string[], options: CompareOptions) 
     });
   }
 
-  let i = 0;
-  let j = 0;
-  while (i < leftMiddle.length || j < rightMiddle.length) {
-    if (
-      i < leftMiddle.length
-      && j < rightMiddle.length
-      && leftMiddle[i] === rightMiddle[j]
-    ) {
-      raw.push({
-        type: "same",
-        left: left[prefix + i],
-        right: right[prefix + j],
-        leftNumber: prefix + i + 1,
-        rightNumber: prefix + j + 1,
-      });
-      i++; j++;
-    } else if (
-      j < rightMiddle.length
-      && (i >= leftMiddle.length || matrix[i][j + 1] >= matrix[i + 1][j])
-    ) {
-      raw.push({
-        type: "added",
-        left: "",
-        right: right[prefix + j],
-        rightNumber: prefix + j + 1,
-      });
-      j++;
-    } else {
-      raw.push({
-        type: "deleted",
-        left: left[prefix + i],
-        right: "",
-        leftNumber: prefix + i + 1,
-      });
-      i++;
-    }
-  }
+  const leftEnd = left.length - suffix;
+  const rightEnd = right.length - suffix;
+  raw.push(...hybridRawDiff(
+    left.slice(prefix, leftEnd),
+    right.slice(prefix, rightEnd),
+    normalizedLeft.slice(prefix, leftEnd),
+    normalizedRight.slice(prefix, rightEnd),
+    prefix,
+    prefix,
+    options.algorithm ?? "balanced",
+  ));
 
   for (let index = suffix; index > 0; index--) {
     const leftIndex = left.length - index;
@@ -272,6 +507,50 @@ const buildRawDiff = (left: string[], right: string[], options: CompareOptions) 
 const alignChangeBlock = (deleted: RawDiff[], added: RawDiff[]) => {
   if (!deleted.length) return added.map(row => ({ ...row, type: "added" as const }));
   if (!added.length) return deleted.map(row => ({ ...row, type: "deleted" as const }));
+  if (deleted.length * added.length > 200_000) {
+    const result: Array<Omit<DiffRow, "id" | "fileKey">> = [];
+    const paired = Math.min(deleted.length, added.length);
+    for (let index = 0; index < paired; index++) {
+      const oldLine = deleted[index];
+      const newLine = added[index];
+      if (lineSimilarity(oldLine.left, newLine.right) >= 0.28) {
+        result.push({
+          leftNumber: oldLine.leftNumber,
+          rightNumber: newLine.rightNumber,
+          left: oldLine.left,
+          right: newLine.right,
+          type: "changed",
+          ...inlineDiff(oldLine.left, newLine.right),
+        });
+      } else {
+        result.push({
+          leftNumber: oldLine.leftNumber,
+          left: oldLine.left,
+          right: "",
+          type: "deleted",
+        });
+        result.push({
+          rightNumber: newLine.rightNumber,
+          left: "",
+          right: newLine.right,
+          type: "added",
+        });
+      }
+    }
+    result.push(...deleted.slice(paired).map(row => ({
+      leftNumber: row.leftNumber,
+      left: row.left,
+      right: "",
+      type: "deleted" as const,
+    })));
+    result.push(...added.slice(paired).map(row => ({
+      rightNumber: row.rightNumber,
+      left: "",
+      right: row.right,
+      type: "added" as const,
+    })));
+    return result;
+  }
 
   const rows = deleted.length + 1;
   const columns = added.length + 1;

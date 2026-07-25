@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
-import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
+import { compareSnapshots, DiffAlgorithm, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
   id: string;
@@ -43,6 +43,11 @@ declare global {
 }
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
+const ALGORITHM_HINTS: Record<DiffAlgorithm, string> = {
+  balanced: "低频行建立稳定锚点，局部使用 Myers；适合需求文档",
+  precise: "整段使用 Myers 寻找更短的编辑路径；较慢",
+  fast: "优先唯一行锚点并限制搜索深度；适合大文档预览",
+};
 
 const readBrowserHistory = (): BaselineCommit[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -135,6 +140,7 @@ export default function Home() {
   const [diffRows, setDiffRows] = useState<DiffRow[]>([]);
   const [diffStats, setDiffStats] = useState({ changed: 0, added: 0, deleted: 0, same: 0 });
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [diffAlgorithm, setDiffAlgorithm] = useState<DiffAlgorithm>("balanced");
   const [showDifferencesOnly, setShowDifferencesOnly] = useState(false);
   const [activeDiffId, setActiveDiffId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<BaselineCommit | null>(null);
@@ -311,7 +317,10 @@ export default function Home() {
     const base = history.find(item => item.id === baseVersionId);
     const target = history.find(item => item.id === targetVersionId);
     if (!base?.snapshots?.length || !target?.snapshots?.length) return notify("所选版本缺少可比较的内容快照");
-    const result = compareSnapshots(base.snapshots, target.snapshots, { ignoreWhitespace });
+    const result = compareSnapshots(base.snapshots, target.snapshots, {
+      ignoreWhitespace,
+      algorithm: diffAlgorithm,
+    });
     setDiffRows(result.rows);
     setDiffStats({ changed: result.changed, added: result.added, deleted: result.deleted, same: result.same });
     setActiveDiffId(result.rows.find(row => row.type !== "file" && row.type !== "same")?.id ?? "");
@@ -539,6 +548,18 @@ export default function Home() {
                     <button className="compare-button" onClick={runComparison}>开始对比</button>
                   </div>
                   <div className="compare-options">
+                    <label className="algorithm-option">
+                      <span>对齐算法</span>
+                      <select value={diffAlgorithm} onChange={event => {
+                        setDiffAlgorithm(event.target.value as DiffAlgorithm);
+                        setDiffRows([]);
+                        setActiveDiffId("");
+                      }}>
+                        <option value="balanced">平衡 · Histogram + Myers</option>
+                        <option value="precise">精确 · Myers</option>
+                        <option value="fast">快速 · Patience</option>
+                      </select>
+                    </label>
                     <label>
                       <input
                         type="checkbox"
@@ -551,7 +572,7 @@ export default function Home() {
                       />
                       忽略空格与制表符差异
                     </label>
-                    <span>DOCX 按正文段落逐行对齐，修改行会继续标出行内字符差异</span>
+                    <span>{ALGORITHM_HINTS[diffAlgorithm]}</span>
                   </div>
 
                   {diffRows.length > 0 ? (

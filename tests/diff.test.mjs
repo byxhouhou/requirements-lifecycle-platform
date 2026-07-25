@@ -71,3 +71,70 @@ test("can ignore whitespace-only line differences", () => {
   assert.equal(relaxed.changed, 0);
   assert.equal(relaxed.same, 1);
 });
+
+test("Myers precise mode returns a shortest line edit path", () => {
+  const referenceLcs = (left, right) => {
+    const matrix = Array.from({ length: left.length + 1 }, () => new Uint16Array(right.length + 1));
+    for (let i = left.length - 1; i >= 0; i--) {
+      for (let j = right.length - 1; j >= 0; j--) {
+        matrix[i][j] = left[i] === right[j]
+          ? matrix[i + 1][j + 1] + 1
+          : Math.max(matrix[i + 1][j], matrix[i][j + 1]);
+      }
+    }
+    return matrix[0][0];
+  };
+
+  let seed = 20260725;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 2 ** 32;
+  };
+
+  for (let sample = 0; sample < 80; sample++) {
+    const left = Array.from({ length: 3 + Math.floor(random() * 8) }, () => `L${Math.floor(random() * 6)}`);
+    const right = Array.from({ length: 3 + Math.floor(random() * 8) }, () => `L${Math.floor(random() * 6)}`);
+    const result = compareSnapshots(
+      [snapshot("随机需求.docx", left.join("\n"))],
+      [snapshot("随机需求.docx", right.join("\n"))],
+      { algorithm: "precise" },
+    );
+    assert.equal(result.same, referenceLcs(left, right));
+
+    const body = result.rows.filter(row => row.type !== "file");
+    assert.deepEqual(
+      body.filter(row => row.leftNumber).map(row => row.left),
+      left,
+    );
+    assert.deepEqual(
+      body.filter(row => row.rightNumber).map(row => row.right),
+      right,
+    );
+  }
+});
+
+test("balanced and fast modes keep stable anchors around large insertions", () => {
+  const base = [
+    "1 范围",
+    "通用说明",
+    "REQ-001 用户登录",
+    "通用说明",
+    "REQ-002 权限校验",
+    "通用说明",
+    "REQ-003 操作审计",
+  ];
+  const inserted = Array.from({ length: 120 }, (_, index) => `新增需求 NEW-${String(index + 1).padStart(3, "0")}`);
+  const target = [...base.slice(0, 4), ...inserted, ...base.slice(4)];
+
+  for (const algorithm of ["balanced", "fast"]) {
+    const result = compareSnapshots(
+      [snapshot("系统需求.docx", base.join("\n"))],
+      [snapshot("系统需求.docx", target.join("\n"))],
+      { algorithm },
+    );
+    assert.equal(result.same, base.length);
+    assert.equal(result.added, inserted.length);
+    assert.equal(result.changed, 0);
+    assert.equal(result.deleted, 0);
+  }
+});

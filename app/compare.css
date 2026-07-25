@@ -139,6 +139,31 @@
   accent-color: var(--violet);
 }
 
+.compare-options .algorithm-option {
+  gap: 7px;
+}
+
+.algorithm-option > span {
+  color: #697386;
+  font-weight: 700;
+}
+
+.algorithm-option select {
+  height: 29px;
+  border: 1px solid #dce1e8;
+  border-radius: 6px;
+  background: #fff;
+  color: #505b6e;
+  padding: 0 8px;
+  outline: none;
+  font-size: 8px;
+}
+
+.algorithm-option select:focus {
+  border-color: #9885e8;
+  box-shadow: 0 0 0 2px #f0edff;
+}
+
 .diff-result {
   margin-top: 12px;
   border: 1px solid #dfe3e9;
