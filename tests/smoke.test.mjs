@@ -35,3 +35,11 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
   assert.match(launcher, /ValidateBeyondCompareExecutable/);
   assert.match(launcher, /ValidateDocumentPath/);
 });
+
+test("development mode opens the browser file chooser synchronously", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /window\.location\.port === "37651"/);
+  assert.match(page, /fileInputRef\.current\?\.click\(\)/);
+  assert.match(page, /folderInputRef\.current\?\.click\(\)/);
+});

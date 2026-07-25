@@ -300,6 +300,14 @@ export default function Home() {
   };
 
   const chooseDocuments = async (mode: "folder" | "files") => {
+    const isPackagedRuntime = window.location.port === "37651"
+      && (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
+    if (!isPackagedRuntime) {
+      if (mode === "folder") folderInputRef.current?.click();
+      else fileInputRef.current?.click();
+      return;
+    }
+
     setSelectingDocuments(true);
     try {
       const response = await fetch("/api/local-files/pick", {
@@ -360,8 +368,7 @@ export default function Home() {
         ? `已从文件夹识别 ${mapped.length} 份需求文档，并记录原始路径`
         : `已添加 ${mapped.length} 份需求文档，并记录原始路径`);
     } catch {
-      if (mode === "folder") folderInputRef.current?.click();
-      else fileInputRef.current?.click();
+      notify("本机文件选择器暂不可用，请重启 ReqFlow.exe 后重试");
     } finally {
       setSelectingDocuments(false);
     }
