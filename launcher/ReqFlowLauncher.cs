@@ -10,7 +10,9 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace ReqFlowLauncher
 {
@@ -58,6 +60,7 @@ namespace ReqFlowLauncher
 
     internal sealed class ReqFlowContext : ApplicationContext
     {
+        private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private readonly string appRoot;
         private readonly string statePath;
         private readonly TcpListener listener;
@@ -167,6 +170,11 @@ namespace ReqFlowLauncher
                         HandleStateRequest(stream, request);
                         return;
                     }
+                    if (request.Path.StartsWith("/api/integrations/beyond-compare/", StringComparison.Ordinal))
+                    {
+                        HandleBeyondCompareRequest(stream, request);
+                        return;
+                    }
 
                     if (request.Method != "GET" && request.Method != "HEAD")
                     {
@@ -233,6 +241,197 @@ namespace ReqFlowLauncher
             WriteResponse(stream, 405, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"error\":\"method_not_allowed\"}"), false);
         }
 
+        private void HandleBeyondCompareRequest(NetworkStream stream, HttpRequest request)
+        {
+            try
+            {
+                if (request.Path == "/api/integrations/beyond-compare/status" && request.Method == "GET")
+                {
+                    var executablePath = FindBeyondCompare();
+                    var version = string.IsNullOrEmpty(executablePath)
+                        ? ""
+                        : FileVersionInfo.GetVersionInfo(executablePath).ProductVersion ?? "";
+                    WriteJson(stream, 200, new
+                    {
+                        installed = !string.IsNullOrEmpty(executablePath),
+                        executablePath = executablePath ?? "",
+                        version = version
+                    });
+                    return;
+                }
+
+                if (request.Method != "POST")
+                {
+                    WriteJson(stream, 405, new { error = "method_not_allowed" });
+                    return;
+                }
+
+                string integrationHeader;
+                if (!request.Headers.TryGetValue("X-ReqFlow-Integration", out integrationHeader)
+                    || integrationHeader != "beyond-compare")
+                {
+                    WriteJson(stream, 403, new { error = "integration_header_required" });
+                    return;
+                }
+
+                var payload = request.Body.Length == 0
+                    ? new Dictionary<string, object>()
+                    : Json.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(request.Body));
+
+                if (request.Path == "/api/integrations/beyond-compare/pick")
+                {
+                    object kindValue;
+                    var kind = payload != null && payload.TryGetValue("kind", out kindValue)
+                        ? Convert.ToString(kindValue)
+                        : "document";
+                    var selectedPath = PickLocalPath(kind == "program");
+                    WriteJson(stream, 200, new
+                    {
+                        selected = !string.IsNullOrEmpty(selectedPath),
+                        path = selectedPath ?? ""
+                    });
+                    return;
+                }
+
+                if (request.Path == "/api/integrations/beyond-compare/launch")
+                {
+                    var executablePath = PayloadString(payload, "executablePath");
+                    var leftPath = PayloadString(payload, "leftPath");
+                    var rightPath = PayloadString(payload, "rightPath");
+                    executablePath = ValidateBeyondCompareExecutable(executablePath);
+                    leftPath = ValidateDocumentPath(leftPath);
+                    rightPath = ValidateDocumentPath(rightPath);
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = executablePath,
+                        Arguments = QuoteArgument(leftPath) + " " + QuoteArgument(rightPath),
+                        WorkingDirectory = Path.GetDirectoryName(executablePath),
+                        UseShellExecute = true
+                    });
+                    WriteJson(stream, 200, new { launched = true });
+                    return;
+                }
+
+                WriteJson(stream, 404, new { error = "integration_endpoint_not_found" });
+            }
+            catch (Exception error)
+            {
+                WriteJson(stream, 400, new { error = error.Message });
+            }
+        }
+
+        private static string PayloadString(Dictionary<string, object> payload, string key)
+        {
+            object value;
+            return payload != null && payload.TryGetValue(key, out value)
+                ? Convert.ToString(value)
+                : "";
+        }
+
+        private static void WriteJson(NetworkStream stream, int status, object payload)
+        {
+            WriteResponse(
+                stream,
+                status,
+                "application/json; charset=utf-8",
+                Encoding.UTF8.GetBytes(Json.Serialize(payload)),
+                false);
+        }
+
+        private static string FindBeyondCompare()
+        {
+            var candidates = new List<string>();
+            var registryLocations = new[]
+            {
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\BCompare.exe",
+                @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\BCompare.exe",
+                @"HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\BCompare.exe"
+            };
+            foreach (var registryLocation in registryLocations)
+            {
+                try
+                {
+                    var value = Convert.ToString(Registry.GetValue(registryLocation, "", null));
+                    if (!string.IsNullOrWhiteSpace(value)) candidates.Add(value.Trim('"'));
+                }
+                catch { }
+            }
+
+            var programFolders = new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+            };
+            foreach (var folder in programFolders)
+            {
+                if (string.IsNullOrWhiteSpace(folder)) continue;
+                candidates.Add(Path.Combine(folder, "Beyond Compare 5", "BCompare.exe"));
+                candidates.Add(Path.Combine(folder, "Beyond Compare 4", "BCompare.exe"));
+                candidates.Add(Path.Combine(folder, "Beyond Compare 3", "BCompare.exe"));
+            }
+            return candidates.Find(File.Exists);
+        }
+
+        private static string PickLocalPath(bool program)
+        {
+            string selectedPath = null;
+            Exception dialogError = null;
+            var dialogThread = new Thread((ThreadStart)delegate
+            {
+                try
+                {
+                    using (var dialog = new OpenFileDialog())
+                    {
+                        dialog.Title = program ? "选择 Beyond Compare 程序" : "选择要对比的文档";
+                        dialog.Filter = program
+                            ? "Beyond Compare (BCompare.exe)|BCompare.exe|Windows 程序 (*.exe)|*.exe"
+                            : "需求文档 (*.doc;*.docx;*.wps;*.pdf)|*.doc;*.docx;*.wps;*.pdf|所有文件 (*.*)|*.*";
+                        dialog.CheckFileExists = true;
+                        dialog.Multiselect = false;
+                        dialog.RestoreDirectory = true;
+                        if (dialog.ShowDialog() == DialogResult.OK) selectedPath = dialog.FileName;
+                    }
+                }
+                catch (Exception error)
+                {
+                    dialogError = error;
+                }
+            });
+            dialogThread.SetApartmentState(ApartmentState.STA);
+            dialogThread.Start();
+            dialogThread.Join();
+            if (dialogError != null) throw dialogError;
+            return selectedPath;
+        }
+
+        private static string ValidateBeyondCompareExecutable(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new InvalidDataException("未填写 Beyond Compare 程序路径。");
+            var fullPath = Path.GetFullPath(path.Trim().Trim('"'));
+            if (!File.Exists(fullPath)) throw new FileNotFoundException("Beyond Compare 程序不存在。", fullPath);
+            var fileNameMatches = string.Equals(Path.GetFileName(fullPath), "BCompare.exe", StringComparison.OrdinalIgnoreCase);
+            var productName = FileVersionInfo.GetVersionInfo(fullPath).ProductName ?? "";
+            if (!fileNameMatches && productName.IndexOf("Beyond Compare", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                throw new InvalidDataException("选择的程序不是 Beyond Compare。");
+            }
+            return fullPath;
+        }
+
+        private static string ValidateDocumentPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new InvalidDataException("左右文档路径不能为空。");
+            var fullPath = Path.GetFullPath(path.Trim().Trim('"'));
+            if (!File.Exists(fullPath)) throw new FileNotFoundException("对比文档不存在。", fullPath);
+            return fullPath;
+        }
+
+        private static string QuoteArgument(string value)
+        {
+            return "\"" + value + "\"";
+        }
+
         private static HttpRequest ReadRequest(NetworkStream stream)
         {
             var headerBytes = new List<byte>();
@@ -260,12 +459,21 @@ namespace ReqFlowLauncher
             if (first.Length < 2) return null;
 
             var contentLength = 0;
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (var index = 1; index < lines.Length; index++)
             {
-                if (lines[index].StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+                var separator = lines[index].IndexOf(':');
+                if (separator > 0)
                 {
-                    int.TryParse(lines[index].Substring("Content-Length:".Length).Trim(), out contentLength);
+                    var name = lines[index].Substring(0, separator).Trim();
+                    var value = lines[index].Substring(separator + 1).Trim();
+                    headers[name] = value;
                 }
+            }
+            string contentLengthValue;
+            if (headers.TryGetValue("Content-Length", out contentLengthValue))
+            {
+                int.TryParse(contentLengthValue, out contentLength);
             }
             if (contentLength < 0 || contentLength > 25 * 1024 * 1024)
             {
@@ -285,14 +493,17 @@ namespace ReqFlowLauncher
             {
                 Method = first[0].ToUpperInvariant(),
                 Path = first[1],
-                Body = body
+                Body = body,
+                Headers = headers
             };
         }
 
         private static void WriteResponse(NetworkStream stream, int status, string contentType, byte[] body, bool headersOnly)
         {
             var statusText = status == 200 ? "OK"
+                : status == 400 ? "Bad Request"
                 : status == 403 ? "Forbidden"
+                : status == 404 ? "Not Found"
                 : status == 405 ? "Method Not Allowed"
                 : status == 413 ? "Payload Too Large"
                 : "Internal Server Error";
@@ -339,6 +550,7 @@ namespace ReqFlowLauncher
             internal string Method;
             internal string Path;
             internal byte[] Body;
+            internal Dictionary<string, string> Headers;
         }
     }
 }

@@ -75,6 +75,7 @@ using System.Reflection;
     /reference:System.Drawing.dll `
     /reference:System.IO.Compression.dll `
     /reference:System.IO.Compression.FileSystem.dll `
+    /reference:System.Web.Extensions.dll `
     /reference:System.Windows.Forms.dll `
     $source `
     $assemblyInfo

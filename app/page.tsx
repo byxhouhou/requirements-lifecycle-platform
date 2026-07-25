@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
-import { compareSnapshots, DiffAlgorithm, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
+import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
   id: string;
@@ -28,6 +28,14 @@ type BaselineCommit = {
   snapshots?: SnapshotFile[];
 };
 
+type ComparisonMethod = "local" | "beyond" | "ai";
+
+type BeyondCompareStatus = {
+  installed: boolean;
+  executablePath: string;
+  version: string;
+};
+
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
 type FileHandle = { createWritable: () => Promise<WritableFile> };
 type DirectoryHandle = {
@@ -43,11 +51,6 @@ declare global {
 }
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
-const ALGORITHM_HINTS: Record<DiffAlgorithm, string> = {
-  balanced: "低频行建立稳定锚点，局部使用 Myers；适合需求文档",
-  precise: "整段使用 Myers 寻找更短的编辑路径；较慢",
-  fast: "优先唯一行锚点并限制搜索深度；适合大文档预览",
-};
 
 const readBrowserHistory = (): BaselineCommit[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -140,9 +143,15 @@ export default function Home() {
   const [diffRows, setDiffRows] = useState<DiffRow[]>([]);
   const [diffStats, setDiffStats] = useState({ changed: 0, added: 0, deleted: 0, same: 0 });
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
-  const [diffAlgorithm, setDiffAlgorithm] = useState<DiffAlgorithm>("balanced");
+  const [comparisonMethod, setComparisonMethod] = useState<ComparisonMethod>("local");
+  const [compareFullscreen, setCompareFullscreen] = useState(false);
   const [showDifferencesOnly, setShowDifferencesOnly] = useState(false);
   const [activeDiffId, setActiveDiffId] = useState("");
+  const [beyondStatus, setBeyondStatus] = useState<BeyondCompareStatus | null>(null);
+  const [beyondExecutable, setBeyondExecutable] = useState("");
+  const [beyondLeftPath, setBeyondLeftPath] = useState("");
+  const [beyondRightPath, setBeyondRightPath] = useState("");
+  const [beyondWorking, setBeyondWorking] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BaselineCommit | null>(null);
   const [editTarget, setEditTarget] = useState<BaselineCommit | null>(null);
   const [editType, setEditType] = useState("");
@@ -157,6 +166,34 @@ export default function Home() {
     const next = history.length + 1;
     setVersion(`BL-${today().replaceAll("-", ".")}-r${next}`);
   }, [history.length]);
+
+  useEffect(() => {
+    if (!compareFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCompareFullscreen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [compareFullscreen]);
+
+  useEffect(() => {
+    if (comparisonMethod !== "beyond" || beyondStatus) return;
+    void fetch("/api/integrations/beyond-compare/status", {
+      headers: { Accept: "application/json" },
+    }).then(async response => {
+      if (!response.ok) throw new Error("status_unavailable");
+      const status = await response.json() as BeyondCompareStatus;
+      setBeyondStatus(status);
+      if (status.executablePath) setBeyondExecutable(status.executablePath);
+    }).catch(() => {
+      setBeyondStatus({ installed: false, executablePath: "", version: "" });
+    });
+  }, [comparisonMethod, beyondStatus]);
 
   const totalSize = useMemo(() => documents.reduce((sum, doc) => sum + doc.size, 0), [documents]);
   const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
@@ -319,7 +356,7 @@ export default function Home() {
     if (!base?.snapshots?.length || !target?.snapshots?.length) return notify("所选版本缺少可比较的内容快照");
     const result = compareSnapshots(base.snapshots, target.snapshots, {
       ignoreWhitespace,
-      algorithm: diffAlgorithm,
+      algorithm: "balanced",
     });
     setDiffRows(result.rows);
     setDiffStats({ changed: result.changed, added: result.added, deleted: result.deleted, same: result.same });
@@ -339,6 +376,58 @@ export default function Home() {
       const target = diffViewportRef.current?.querySelector<HTMLElement>(`[data-diff-id="${nextId}"]`);
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
+  };
+
+  const pickBeyondComparePath = async (
+    kind: "program" | "document",
+    apply: (path: string) => void,
+  ) => {
+    setBeyondWorking(true);
+    try {
+      const response = await fetch("/api/integrations/beyond-compare/pick", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ReqFlow-Integration": "beyond-compare",
+        },
+        body: JSON.stringify({ kind }),
+      });
+      const payload = await response.json() as { selected?: boolean; path?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error || "picker_failed");
+      if (payload.selected && payload.path) apply(payload.path);
+    } catch {
+      notify("本机文件选择不可用，请直接粘贴完整路径");
+    } finally {
+      setBeyondWorking(false);
+    }
+  };
+
+  const launchBeyondCompare = async () => {
+    if (!beyondExecutable.trim()) return notify("请选择或填写 Beyond Compare 程序路径");
+    if (!beyondLeftPath.trim() || !beyondRightPath.trim()) return notify("请填写左右两个文档路径");
+    setBeyondWorking(true);
+    try {
+      const response = await fetch("/api/integrations/beyond-compare/launch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ReqFlow-Integration": "beyond-compare",
+        },
+        body: JSON.stringify({
+          executablePath: beyondExecutable.trim(),
+          leftPath: beyondLeftPath.trim(),
+          rightPath: beyondRightPath.trim(),
+        }),
+      });
+      const payload = await response.json() as { launched?: boolean; error?: string };
+      if (!response.ok || !payload.launched) throw new Error(payload.error || "launch_failed");
+      notify("Beyond Compare 已打开");
+    } catch (error) {
+      console.error(error);
+      notify("启动失败，请检查程序和文档路径");
+    } finally {
+      setBeyondWorking(false);
+    }
   };
 
   const deleteRecord = () => {
@@ -497,20 +586,60 @@ export default function Home() {
               />
             </section>
 
-            <section className="card compare-card">
+            <section className={`card compare-card ${compareFullscreen ? "compare-fullscreen" : ""}`}>
               <div className="card-head compare-heading">
                 <div>
                   <span className="section-kicker">VERSION DIFF</span>
-                  <h2>基线差异对比</h2>
+                  <h2>版本对比</h2>
                 </div>
-                <div className="diff-legend">
-                  <span className="legend-added">新增</span>
-                  <span className="legend-deleted">删除</span>
-                  <span className="legend-changed">修改</span>
+                <div className="compare-heading-actions">
+                  {comparisonMethod === "local" && (
+                    <div className="diff-legend">
+                      <span className="legend-added">新增</span>
+                      <span className="legend-deleted">删除</span>
+                      <span className="legend-changed">修改</span>
+                    </div>
+                  )}
+                  {comparisonMethod === "local" && (
+                    <button
+                      className="fullscreen-button"
+                      onClick={() => setCompareFullscreen(current => !current)}
+                      aria-label={compareFullscreen ? "退出全屏版本对比" : "全屏查看版本对比"}
+                    >
+                      {compareFullscreen ? "↙ 退出全屏" : "⛶ 放大全屏"}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {comparableVersions.length < 2 ? (
+              <nav className="compare-methods" aria-label="对比方式">
+                <button
+                  className={comparisonMethod === "local" ? "active" : ""}
+                  onClick={() => setComparisonMethod("local")}
+                >
+                  <b>本地算法对比</b><small>内置 · 无外部连接</small>
+                </button>
+                <button
+                  className={comparisonMethod === "beyond" ? "active" : ""}
+                  onClick={() => {
+                    setComparisonMethod("beyond");
+                    setCompareFullscreen(false);
+                  }}
+                >
+                  <b>Beyond Compare</b><small>调用本机程序</small>
+                </button>
+                <button
+                  className={comparisonMethod === "ai" ? "active" : ""}
+                  onClick={() => {
+                    setComparisonMethod("ai");
+                    setCompareFullscreen(false);
+                  }}
+                >
+                  <b>AI 对比</b><small>尚未配置</small>
+                </button>
+              </nav>
+
+              {comparisonMethod === "local" && (comparableVersions.length < 2 ? (
                 <div className="compare-empty">
                   <span>⇄</span>
                   <p>至少提交两个新基线后即可进行内容对比</p>
@@ -548,18 +677,6 @@ export default function Home() {
                     <button className="compare-button" onClick={runComparison}>开始对比</button>
                   </div>
                   <div className="compare-options">
-                    <label className="algorithm-option">
-                      <span>对齐算法</span>
-                      <select value={diffAlgorithm} onChange={event => {
-                        setDiffAlgorithm(event.target.value as DiffAlgorithm);
-                        setDiffRows([]);
-                        setActiveDiffId("");
-                      }}>
-                        <option value="balanced">平衡 · Histogram + Myers</option>
-                        <option value="precise">精确 · Myers</option>
-                        <option value="fast">快速 · Patience</option>
-                      </select>
-                    </label>
                     <label>
                       <input
                         type="checkbox"
@@ -572,7 +689,7 @@ export default function Home() {
                       />
                       忽略空格与制表符差异
                     </label>
-                    <span>{ALGORITHM_HINTS[diffAlgorithm]}</span>
+                    <span>本地混合算法：Histogram 稳定锚点 + Myers 逐行对齐 + 行内字符差异</span>
                   </div>
 
                   {diffRows.length > 0 ? (
@@ -603,8 +720,14 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="diff-pane-head">
-                        <strong>{comparableVersions.find(item => item.id === baseVersionId)?.version}</strong>
-                        <strong>{comparableVersions.find(item => item.id === targetVersionId)?.version}</strong>
+                        <div>
+                          <span>基准文档</span>
+                          <strong>{comparableVersions.find(item => item.id === baseVersionId)?.version}</strong>
+                        </div>
+                        <div>
+                          <span>目标文档</span>
+                          <strong>{comparableVersions.find(item => item.id === targetVersionId)?.version}</strong>
+                        </div>
                       </div>
                       <div className="diff-viewport" ref={diffViewportRef}>
                         {visibleDiffRows.map(row => row.type === "file" ? (
@@ -643,6 +766,92 @@ export default function Home() {
                     <div className="compare-ready"><span>⇄</span><p>选择两个版本，查看逐行内容差异</p></div>
                   )}
                 </>
+              ))}
+
+              {comparisonMethod === "beyond" && (
+                <div className="beyond-panel">
+                  <div className={`integration-status ${beyondStatus?.installed ? "available" : ""}`}>
+                    <span>{beyondStatus?.installed ? "✓" : "!"}</span>
+                    <div>
+                      <strong>{beyondStatus?.installed ? `已检测到 Beyond Compare ${beyondStatus.version}` : "未自动检测到 Beyond Compare"}</strong>
+                      <small>{beyondStatus?.installed
+                        ? "填写左右文档路径后，可直接打开本机 Beyond Compare。"
+                        : "可以手动填写 BCompare.exe 路径，或使用 ReqFlow.exe 的本机文件选择器。"}</small>
+                    </div>
+                  </div>
+
+                  <div className="beyond-fields">
+                    <label>
+                      <span>Beyond Compare 程序路径</span>
+                      <div className="path-input">
+                        <input
+                          value={beyondExecutable}
+                          onChange={event => setBeyondExecutable(event.target.value)}
+                          placeholder="例如 C:\Program Files\Beyond Compare 5\BCompare.exe"
+                        />
+                        <button
+                          onClick={() => void pickBeyondComparePath("program", setBeyondExecutable)}
+                          disabled={beyondWorking}
+                        >选择程序</button>
+                      </div>
+                    </label>
+                    <div className="beyond-document-paths">
+                      <label>
+                        <span>左侧文档路径</span>
+                        <div className="path-input">
+                          <input
+                            value={beyondLeftPath}
+                            onChange={event => setBeyondLeftPath(event.target.value)}
+                            placeholder="输入或选择基准文档完整路径"
+                          />
+                          <button
+                            onClick={() => void pickBeyondComparePath("document", setBeyondLeftPath)}
+                            disabled={beyondWorking}
+                          >选择文件</button>
+                        </div>
+                      </label>
+                      <button
+                        className="path-swap-button"
+                        onClick={() => {
+                          setBeyondLeftPath(beyondRightPath);
+                          setBeyondRightPath(beyondLeftPath);
+                        }}
+                        aria-label="交换左右文档路径"
+                      >⇄</button>
+                      <label>
+                        <span>右侧文档路径</span>
+                        <div className="path-input">
+                          <input
+                            value={beyondRightPath}
+                            onChange={event => setBeyondRightPath(event.target.value)}
+                            placeholder="输入或选择目标文档完整路径"
+                          />
+                          <button
+                            onClick={() => void pickBeyondComparePath("document", setBeyondRightPath)}
+                            disabled={beyondWorking}
+                          >选择文件</button>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="beyond-actions">
+                    <p>路径只发送给当前电脑上的 ReqFlow 启动器，不会上传或保存到外部服务。</p>
+                    <button onClick={() => void launchBeyondCompare()} disabled={beyondWorking}>
+                      {beyondWorking ? "正在处理…" : "打开 Beyond Compare 对比"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {comparisonMethod === "ai" && (
+                <div className="ai-compare-panel">
+                  <div className="ai-icon">AI</div>
+                  <h3>AI 对比尚未配置</h3>
+                  <p>当前系统保持纯本地安全模式，不会把需求文档发送到外部模型。</p>
+                  <small>后续可接入公司批准的本地大模型，对差异进行语义归纳、影响分析和需求变更分类。</small>
+                  <button disabled>等待配置本地 AI 服务</button>
+                </div>
               )}
             </section>
 
