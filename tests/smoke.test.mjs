@@ -28,6 +28,8 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
   assert.match(launcher, /\/api\/local-files\/pick/);
   assert.match(launcher, /\/api\/local-files\/read\//);
   assert.match(launcher, /localFileTokens/);
+  assert.match(launcher, /ShowOwnedDialog/);
+  assert.match(launcher, /Screen\.FromPoint\(Cursor\.Position\)/);
   assert.doesNotMatch(launcher, /Point\(-32000, -32000\)/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/status/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/pick/);

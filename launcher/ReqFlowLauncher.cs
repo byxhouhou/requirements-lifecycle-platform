@@ -497,7 +497,7 @@ namespace ReqFlowLauncher
                         dialog.CheckFileExists = true;
                         dialog.Multiselect = false;
                         dialog.RestoreDirectory = true;
-                        if (dialog.ShowDialog() == DialogResult.OK) selectedPath = dialog.FileName;
+                        if (ShowOwnedDialog(dialog) == DialogResult.OK) selectedPath = dialog.FileName;
                     }
                 }
                 catch (Exception error)
@@ -526,7 +526,7 @@ namespace ReqFlowLauncher
                         {
                             dialog.Description = "Select a folder containing Word, WPS, or PDF documents";
                             dialog.ShowNewFolderButton = false;
-                            if (dialog.ShowDialog() != DialogResult.OK) return;
+                            if (ShowOwnedDialog(dialog) != DialogResult.OK) return;
                             var paths = new List<string>();
                             foreach (var path in Directory.GetFiles(dialog.SelectedPath, "*", SearchOption.AllDirectories))
                             {
@@ -549,7 +549,7 @@ namespace ReqFlowLauncher
                             dialog.CheckFileExists = true;
                             dialog.Multiselect = true;
                             dialog.RestoreDirectory = true;
-                            if (dialog.ShowDialog() != DialogResult.OK) return;
+                            if (ShowOwnedDialog(dialog) != DialogResult.OK) return;
                             selection = new LocalDocumentSelection
                             {
                                 RootPath = "",
@@ -568,6 +568,27 @@ namespace ReqFlowLauncher
             dialogThread.Join();
             if (dialogError != null) throw dialogError;
             return selection;
+        }
+
+        private static DialogResult ShowOwnedDialog(CommonDialog dialog)
+        {
+            using (var owner = new Form())
+            {
+                var workingArea = Screen.FromPoint(Cursor.Position).WorkingArea;
+                owner.ShowInTaskbar = false;
+                owner.TopMost = true;
+                owner.Opacity = 0.01;
+                owner.FormBorderStyle = FormBorderStyle.None;
+                owner.StartPosition = FormStartPosition.Manual;
+                owner.Size = new Size(1, 1);
+                owner.Location = new Point(
+                    workingArea.Left + workingArea.Width / 2,
+                    workingArea.Top + workingArea.Height / 2);
+                owner.Show();
+                owner.BringToFront();
+                owner.Activate();
+                return dialog.ShowDialog(owner);
+            }
         }
 
         private static bool IsSupportedDocument(string path)
