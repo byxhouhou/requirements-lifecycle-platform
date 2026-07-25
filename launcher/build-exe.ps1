@@ -10,6 +10,10 @@ $webArchive = Join-Path $workingDir "ReqFlow.Web.zip"
 $compiler = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $source = Join-Path $PSScriptRoot "ReqFlowLauncher.cs"
 $output = Join-Path $releaseDir "ReqFlow.exe"
+$updaterSource = Join-Path $PSScriptRoot "ReqFlowUpdater.cs"
+$updaterOutput = Join-Path $releaseDir "ReqFlowUpdater.exe"
+$assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
+$hashOutput = Join-Path $releaseDir "ReqFlow.exe.sha256"
 
 if (-not (Test-Path $compiler)) {
     throw "Windows C# compiler was not found: $compiler"
@@ -43,6 +47,22 @@ New-Item -ItemType Directory -Path $workingDir -Force | Out-Null
 
 Compress-Archive -Path (Join-Path $projectRoot "dist\*") -DestinationPath $webArchive -CompressionLevel Optimal
 
+$package = Get-Content -Raw -Encoding UTF8 (Join-Path $projectRoot "package.json") | ConvertFrom-Json
+$versionParts = @($package.version.Split("-")[0].Split("."))
+while ($versionParts.Count -lt 4) { $versionParts += "0" }
+$fileVersion = ($versionParts[0..3] -join ".")
+
+@"
+using System.Reflection;
+[assembly: AssemblyTitle("ReqFlow")]
+[assembly: AssemblyProduct("ReqFlow")]
+[assembly: AssemblyCompany("ReqFlow")]
+[assembly: AssemblyDescription("Local-first requirements lifecycle platform")]
+[assembly: AssemblyVersion("$fileVersion")]
+[assembly: AssemblyFileVersion("$fileVersion")]
+[assembly: AssemblyInformationalVersion("$($package.version)")]
+"@ | Set-Content -Encoding UTF8 $assemblyInfo
+
 & $compiler `
     /nologo `
     /target:winexe `
@@ -56,12 +76,33 @@ Compress-Archive -Path (Join-Path $projectRoot "dist\*") -DestinationPath $webAr
     /reference:System.IO.Compression.dll `
     /reference:System.IO.Compression.FileSystem.dll `
     /reference:System.Windows.Forms.dll `
-    $source
+    $source `
+    $assemblyInfo
 
 if ($LASTEXITCODE -ne 0) {
     throw "ReqFlow.exe compilation failed."
 }
 
 $hash = (Get-FileHash -Algorithm SHA256 $output).Hash
+Set-Content -Encoding ASCII -Path $hashOutput -Value "$hash *ReqFlow.exe"
+
+& $compiler `
+    /nologo `
+    /target:winexe `
+    /platform:x64 `
+    /optimize+ `
+    /out:$updaterOutput `
+    /reference:System.dll `
+    /reference:System.Core.dll `
+    /reference:System.Windows.Forms.dll `
+    $updaterSource
+
+if ($LASTEXITCODE -ne 0) {
+    throw "ReqFlowUpdater.exe compilation failed."
+}
+
+$updaterHash = (Get-FileHash -Algorithm SHA256 $updaterOutput).Hash
 Write-Output "Created: $output"
 Write-Output "SHA256: $hash"
+Write-Output "Created: $updaterOutput"
+Write-Output "SHA256: $updaterHash"

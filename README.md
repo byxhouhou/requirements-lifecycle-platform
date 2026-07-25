@@ -147,6 +147,27 @@ npm ci
 npm run package:windows
 ```
 
+### 从仓库更新
+
+将以下两个文件放在同一个可写文件夹：
+
+```text
+ReqFlow.exe
+ReqFlowUpdater.exe
+```
+
+需要更新时双击 `ReqFlowUpdater.exe` 并确认。更新器会：
+
+1. 从当前仓库 `main` 分支下载 `release/ReqFlow.exe` 和 SHA-256 校验文件。
+2. 校验下载内容是否为有效的 ReqFlow 主程序。
+3. 关闭同目录中正在运行的 ReqFlow。
+4. 将旧版备份为 `ReqFlow.previous.exe`。
+5. 替换主程序并自动重新启动。
+
+更新器只在用户主动运行并确认后访问 GitHub，`ReqFlow.exe` 本身仍不连接外部服务。若公司网络禁止访问 GitHub，更新器会终止操作并保留原程序；也可以通过内部共享盘手动复制新版 `ReqFlow.exe`。
+
+本机数据位于 `%LOCALAPPDATA%\ReqFlow\data\state.json`，不在 EXE 所在目录中，因此更新和替换程序不会覆盖文档归档记录。源文档仍保存在用户选择的归档文件夹中。
+
 ## 当前使用流程
 
 1. 选择一个或多个需求文件，或者选择整个需求文件夹。
@@ -196,8 +217,10 @@ reqflow/
 ├── app/                  # 页面、交互逻辑与样式
 ├── public/               # 静态资源
 ├── tests/                # 自动化检查
-├── launcher/             # Windows 本地启动器源码与构建脚本
-├── release/ReqFlow.exe   # Windows 单文件版本
+├── launcher/                       # Windows 本地启动器和更新器源码
+├── release/ReqFlow.exe             # Windows 单文件版本
+├── release/ReqFlow.exe.sha256      # 主程序完整性校验值
+├── release/ReqFlowUpdater.exe      # 仓库更新器
 ├── 测试需求文档/          # 本地测试用需求版本
 ├── index.html            # 本地应用入口与安全策略
 ├── package.json
@@ -229,6 +252,7 @@ modules/
 - 删除界面记录不会删除已经归档的源文件。
 - 浏览器内容安全策略禁止访问非本机网络地址。
 - 开发与预览服务只监听 `127.0.0.1`，不会暴露到局域网。
+- 只有独立的 `ReqFlowUpdater.exe` 会在用户主动确认后访问 GitHub。
 
 ## 当前限制
 
@@ -247,7 +271,7 @@ npm run dev       # 启动本地开发服务
 npm run build     # 执行生产构建检查
 npm test          # 运行测试
 npm run preview   # 本机预览生产构建
-npm run package:windows  # 生成 Windows 单文件版
+npm run package:windows  # 生成主程序、校验文件和独立更新器
 ```
 
 ## 建议的仓库信息
