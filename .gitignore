@@ -5,6 +5,7 @@
 /.npm-cache/
 /.wrangler/
 /.launcher-build/
+/.test-build/
 /.pnp
 .pnp.*
 .yarn/*

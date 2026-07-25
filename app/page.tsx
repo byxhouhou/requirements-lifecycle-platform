@@ -103,9 +103,21 @@ const writeFile = async (folder: DirectoryHandle, name: string, data: string | B
   await writer.close();
 };
 
+const renderDiffText = (
+  segments: DiffRow["leftSegments"] | DiffRow["rightSegments"],
+  fallback: string,
+  side: "left" | "right",
+) => {
+  if (!segments?.length) return fallback || " ";
+  return segments.map((segment, index) => segment.changed
+    ? <mark className={`inline-${side}`} key={`${index}-${segment.text}`}>{segment.text}</mark>
+    : <span key={`${index}-${segment.text}`}>{segment.text}</span>);
+};
+
 export default function Home() {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const diffViewportRef = useRef<HTMLDivElement>(null);
   const [documents, setDocuments] = useState<ImportedDoc[]>([]);
   const [sourceFolder, setSourceFolder] = useState("");
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
@@ -122,6 +134,9 @@ export default function Home() {
   const [targetVersionId, setTargetVersionId] = useState("");
   const [diffRows, setDiffRows] = useState<DiffRow[]>([]);
   const [diffStats, setDiffStats] = useState({ changed: 0, added: 0, deleted: 0, same: 0 });
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [showDifferencesOnly, setShowDifferencesOnly] = useState(false);
+  const [activeDiffId, setActiveDiffId] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<BaselineCommit | null>(null);
   const [editTarget, setEditTarget] = useState<BaselineCommit | null>(null);
   const [editType, setEditType] = useState("");
@@ -139,6 +154,16 @@ export default function Home() {
 
   const totalSize = useMemo(() => documents.reduce((sum, doc) => sum + doc.size, 0), [documents]);
   const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
+  const differenceRows = useMemo(
+    () => diffRows.filter(row => row.type !== "file" && row.type !== "same"),
+    [diffRows],
+  );
+  const visibleDiffRows = useMemo(() => {
+    if (!showDifferencesOnly) return diffRows;
+    const changedFiles = new Set(differenceRows.map(row => row.fileKey));
+    return diffRows.filter(row =>
+      row.type === "file" ? changedFiles.has(row.fileKey) : row.type !== "same");
+  }, [diffRows, differenceRows, showDifferencesOnly]);
   useEffect(() => {
     if (!comparableVersions.length) return;
     if (!targetVersionId || !comparableVersions.some(item => item.id === targetVersionId)) {
@@ -286,10 +311,25 @@ export default function Home() {
     const base = history.find(item => item.id === baseVersionId);
     const target = history.find(item => item.id === targetVersionId);
     if (!base?.snapshots?.length || !target?.snapshots?.length) return notify("所选版本缺少可比较的内容快照");
-    const result = compareSnapshots(base.snapshots, target.snapshots);
+    const result = compareSnapshots(base.snapshots, target.snapshots, { ignoreWhitespace });
     setDiffRows(result.rows);
     setDiffStats({ changed: result.changed, added: result.added, deleted: result.deleted, same: result.same });
+    setActiveDiffId(result.rows.find(row => row.type !== "file" && row.type !== "same")?.id ?? "");
     notify(`比较完成：发现 ${result.changed + result.added + result.deleted} 处差异`);
+  };
+
+  const jumpToDifference = (direction: -1 | 1) => {
+    if (!differenceRows.length) return notify("当前两个版本没有差异");
+    const current = differenceRows.findIndex(row => row.id === activeDiffId);
+    const nextIndex = current < 0
+      ? direction > 0 ? 0 : differenceRows.length - 1
+      : (current + direction + differenceRows.length) % differenceRows.length;
+    const nextId = differenceRows[nextIndex].id;
+    setActiveDiffId(nextId);
+    window.requestAnimationFrame(() => {
+      const target = diffViewportRef.current?.querySelector<HTMLElement>(`[data-diff-id="${nextId}"]`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   };
 
   const deleteRecord = () => {
@@ -472,7 +512,11 @@ export default function Home() {
                   <div className="compare-controls">
                     <label>
                       <span>基准版本</span>
-                      <select value={baseVersionId} onChange={event => setBaseVersionId(event.target.value)}>
+                      <select value={baseVersionId} onChange={event => {
+                        setBaseVersionId(event.target.value);
+                        setDiffRows([]);
+                        setActiveDiffId("");
+                      }}>
                         {comparableVersions.map(item => <option value={item.id} key={`base-${item.id}`}>{item.version} · {item.id}</option>)}
                       </select>
                     </label>
@@ -480,38 +524,95 @@ export default function Home() {
                       setBaseVersionId(targetVersionId);
                       setTargetVersionId(baseVersionId);
                       setDiffRows([]);
+                      setActiveDiffId("");
                     }} aria-label="交换比较版本">⇄</button>
                     <label>
                       <span>目标版本</span>
-                      <select value={targetVersionId} onChange={event => setTargetVersionId(event.target.value)}>
+                      <select value={targetVersionId} onChange={event => {
+                        setTargetVersionId(event.target.value);
+                        setDiffRows([]);
+                        setActiveDiffId("");
+                      }}>
                         {comparableVersions.map(item => <option value={item.id} key={`target-${item.id}`}>{item.version} · {item.id}</option>)}
                       </select>
                     </label>
                     <button className="compare-button" onClick={runComparison}>开始对比</button>
                   </div>
+                  <div className="compare-options">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={ignoreWhitespace}
+                        onChange={event => {
+                          setIgnoreWhitespace(event.target.checked);
+                          setDiffRows([]);
+                          setActiveDiffId("");
+                        }}
+                      />
+                      忽略空格与制表符差异
+                    </label>
+                    <span>DOCX 按正文段落逐行对齐，修改行会继续标出行内字符差异</span>
+                  </div>
 
                   {diffRows.length > 0 ? (
                     <div className="diff-result">
                       <div className="diff-summary">
-                        <span><b>{diffStats.changed}</b> 修改</span>
-                        <span><b>{diffStats.added}</b> 新增</span>
-                        <span><b>{diffStats.deleted}</b> 删除</span>
-                        <span><b>{diffStats.same}</b> 相同</span>
+                        <div className="diff-summary-counts">
+                          <span><b>{diffStats.changed}</b> 修改</span>
+                          <span><b>{diffStats.added}</b> 新增</span>
+                          <span><b>{diffStats.deleted}</b> 删除</span>
+                          <span><b>{diffStats.same}</b> 相同</span>
+                        </div>
+                        <div className="diff-tools">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={showDifferencesOnly}
+                              onChange={event => setShowDifferencesOnly(event.target.checked)}
+                            />
+                            仅显示差异
+                          </label>
+                          <button onClick={() => jumpToDifference(-1)} disabled={!differenceRows.length}>↑ 上一处</button>
+                          <button onClick={() => jumpToDifference(1)} disabled={!differenceRows.length}>↓ 下一处</button>
+                          <small>
+                            {differenceRows.length
+                              ? `${Math.max(1, differenceRows.findIndex(row => row.id === activeDiffId) + 1)} / ${differenceRows.length}`
+                              : "0 / 0"}
+                          </small>
+                        </div>
                       </div>
                       <div className="diff-pane-head">
                         <strong>{comparableVersions.find(item => item.id === baseVersionId)?.version}</strong>
                         <strong>{comparableVersions.find(item => item.id === targetVersionId)?.version}</strong>
                       </div>
-                      <div className="diff-viewport">
-                        {diffRows.map((row, index) => (
-                          <div className={`diff-row diff-${row.type}`} key={`${index}-${row.leftNumber}-${row.rightNumber}`}>
+                      <div className="diff-viewport" ref={diffViewportRef}>
+                        {visibleDiffRows.map(row => row.type === "file" ? (
+                          <div className={`diff-file-row file-${row.fileStatus}`} key={row.id}>
+                            <div>
+                              <strong>{row.left || "—"}</strong>
+                              {!row.left && <span>新增文件</span>}
+                            </div>
+                            <div>
+                              <strong>{row.right || "—"}</strong>
+                              <span className={`file-status status-${row.fileStatus}`}>
+                                {row.fileStatus === "same" ? "相同" : row.fileStatus === "added" ? "新增" : row.fileStatus === "deleted" ? "删除" : "有修改"}
+                              </span>
+                              <span className="comparison-mode">{row.comparisonMode === "content" ? "正文对比" : "文件属性对比"}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className={`diff-row diff-${row.type} ${row.id === activeDiffId ? "active-diff" : ""}`}
+                            data-diff-id={row.id}
+                            key={row.id}
+                          >
                             <div className="diff-side">
                               <span className="line-number">{row.leftNumber ?? ""}</span>
-                              <code>{row.left || " "}</code>
+                              <code>{renderDiffText(row.leftSegments, row.left, "left")}</code>
                             </div>
                             <div className="diff-side">
                               <span className="line-number">{row.rightNumber ?? ""}</span>
-                              <code>{row.right || " "}</code>
+                              <code>{renderDiffText(row.rightSegments, row.right, "right")}</code>
                             </div>
                           </div>
                         ))}
