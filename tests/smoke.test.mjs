@@ -80,4 +80,8 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
   assert.match(page, /workspaceView !== "requirements" \? "view-hidden"/);
   assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
+  assert.match(page, /decodeChineseConfig/);
+  assert.match(page, /new TextDecoder\("gb18030"\)/);
+  assert.match(page, /new TextDecoder\("utf-16le"\)/);
+  assert.match(page, /file\.arrayBuffer\(\)/);
 });

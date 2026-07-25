@@ -165,6 +165,42 @@ const parseQuickLinkConfig = (content: string): QuickLink[] => {
   });
 };
 
+const decodeChineseConfig = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    const swapped = bytes.slice(2);
+    for (let index = 0; index + 1 < swapped.length; index += 2) {
+      [swapped[index], swapped[index + 1]] = [swapped[index + 1], swapped[index]];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+
+  const sample = bytes.subarray(0, Math.min(bytes.length, 400));
+  const evenNulls = sample.filter((value, index) => index % 2 === 0 && value === 0).length;
+  const oddNulls = sample.filter((value, index) => index % 2 === 1 && value === 0).length;
+  if (oddNulls > sample.length / 8) return new TextDecoder("utf-16le").decode(bytes);
+  if (evenNulls > sample.length / 8) {
+    const swapped = bytes.slice();
+    for (let index = 0; index + 1 < swapped.length; index += 2) {
+      [swapped[index], swapped[index + 1]] = [swapped[index + 1], swapped[index]];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    // GB18030 is backward compatible with the common GBK and GB2312 encodings.
+    return new TextDecoder("gb18030").decode(bytes);
+  }
+};
+
 const readableSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -746,14 +782,14 @@ export default function Home() {
     event.target.value = "";
     if (!file) return;
     try {
-      const imported = parseQuickLinkConfig(await file.text());
+      const imported = parseQuickLinkConfig(decodeChineseConfig(await file.arrayBuffer()));
       if (!imported.length) return notify("配置文件中未识别到有效的“按钮名称,链接地址”");
       const deduplicated = [...quickLinks, ...imported].filter((link, index, links) =>
         links.findIndex(item => item.name === link.name && item.url === link.url) === index);
       saveQuickLinks(deduplicated);
       notify(`已导入 ${deduplicated.length - quickLinks.length} 个快捷按钮`);
     } catch {
-      notify("配置文件读取失败，请使用 UTF-8 编码的 CSV 或 TXT 文件");
+      notify("配置文件读取失败，请检查文件是否为常用中文文本格式");
     }
   };
 
@@ -833,7 +869,7 @@ export default function Home() {
             <div>
               <span className="section-kicker">QUICK PATHS</span>
               <h2>快捷路径工具</h2>
-              <p>保存常用在线地址，点击按钮后由浏览器直接打开。</p>
+              <p>保存常用在线地址，点击按钮后由浏览器直接打开。配置导入兼容 UTF-8、UTF-16、GBK、GB2312 和 GB18030。</p>
             </div>
             <button className="quick-import" onClick={() => quickLinkFileInputRef.current?.click()}>
               导入配置文件
