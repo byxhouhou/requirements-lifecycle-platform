@@ -123,6 +123,30 @@ http://localhost:3000/
 npm run build
 ```
 
+### Windows 单文件版
+
+仓库提供 `release/ReqFlow.exe`。双击后会：
+
+1. 在 `127.0.0.1:37651` 启动仅限本机访问的服务。
+2. 自动打开默认浏览器。
+3. 在系统托盘保留 ReqFlow 图标。
+4. 右键托盘图标并选择“退出”，即可关闭本地服务。
+
+该 EXE 不需要安装 Node.js，也不会连接外部服务。应用状态保存在：
+
+```text
+%LOCALAPPDATA%\ReqFlow\data\state.json
+```
+
+再次打开 EXE 时，会自动恢复文档归档记录、备注、变更类型和版本对比快照。源文档仍保存在用户选择的归档文件夹中；浏览器安全策略要求重新选择归档目录后才能继续写入。
+
+从源码重新生成 EXE：
+
+```powershell
+npm ci
+npm run package:windows
+```
+
 ## 当前使用流程
 
 1. 选择一个或多个需求文件，或者选择整个需求文件夹。
@@ -172,6 +196,8 @@ reqflow/
 ├── app/                  # 页面、交互逻辑与样式
 ├── public/               # 静态资源
 ├── tests/                # 自动化检查
+├── launcher/             # Windows 本地启动器源码与构建脚本
+├── release/ReqFlow.exe   # Windows 单文件版本
 ├── 测试需求文档/          # 本地测试用需求版本
 ├── index.html            # 本地应用入口与安全策略
 ├── package.json
@@ -199,6 +225,7 @@ modules/
 - 输入文档不会自动上传到外部服务。
 - 归档文件只写入用户明确选择的本机文件夹。
 - 文档归档记录和对比快照保存在当前浏览器。
+- EXE 版本会把记录与对比快照同步保存到当前 Windows 用户的本地数据目录。
 - 删除界面记录不会删除已经归档的源文件。
 - 浏览器内容安全策略禁止访问非本机网络地址。
 - 开发与预览服务只监听 `127.0.0.1`，不会暴露到局域网。
@@ -220,6 +247,7 @@ npm run dev       # 启动本地开发服务
 npm run build     # 执行生产构建检查
 npm test          # 运行测试
 npm run preview   # 本机预览生产构建
+npm run package:windows  # 生成 Windows 单文件版
 ```
 
 ## 建议的仓库信息

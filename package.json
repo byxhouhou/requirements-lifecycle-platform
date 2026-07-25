@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "start": "vite --host 127.0.0.1 --strictPort",
     "preview": "vite preview --host 127.0.0.1 --strictPort",
-    "test": "npm run build && node --test tests/smoke.test.mjs"
+    "test": "npm run build && node --test tests/smoke.test.mjs",
+    "package:windows": "powershell -ExecutionPolicy Bypass -File launcher/build-exe.ps1"
   },
   "dependencies": {
     "jszip": "^3.10.1",

@@ -44,6 +44,44 @@ declare global {
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
 
+const readBrowserHistory = (): BaselineCommit[] => {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return [];
+  try {
+    return JSON.parse(saved);
+  } catch {
+    return [];
+  }
+};
+
+const loadPersistedHistory = async (): Promise<BaselineCommit[]> => {
+  const browserHistory = readBrowserHistory();
+  try {
+    const response = await fetch("/api/state", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+      return browserHistory;
+    }
+    const payload = await response.json() as { history?: BaselineCommit[] };
+    return Array.isArray(payload.history) ? payload.history : browserHistory;
+  } catch {
+    return browserHistory;
+  }
+};
+
+const persistHistory = (history: BaselineCommit[]) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  void fetch("/api/state", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, history }),
+  }).catch(() => {
+    // Development mode has no local EXE persistence API; browser storage remains available.
+  });
+};
+
 const readableSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -91,8 +129,7 @@ export default function Home() {
   const [editConfirming, setEditConfirming] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) try { setHistory(JSON.parse(saved)); } catch {}
+    void loadPersistedHistory().then(setHistory);
   }, []);
 
   useEffect(() => {
@@ -232,7 +269,7 @@ export default function Home() {
       ].join("\n");
       await writeFile(projectFolder, "CHANGELOG.md", changelog);
       setHistory(nextHistory);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextHistory));
+      persistHistory(nextHistory);
       setNote("");
       notify(`${commit.version} 已建立并写入归档文件夹`);
     } catch (error) {
@@ -259,7 +296,7 @@ export default function Home() {
     if (!deleteTarget) return;
     const nextHistory = history.filter(item => item.id !== deleteTarget.id);
     setHistory(nextHistory);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextHistory));
+    persistHistory(nextHistory);
     if (baseVersionId === deleteTarget.id) setBaseVersionId("");
     if (targetVersionId === deleteTarget.id) setTargetVersionId("");
     if (baseVersionId === deleteTarget.id || targetVersionId === deleteTarget.id) {
@@ -300,7 +337,7 @@ export default function Home() {
       ? { ...item, type: editType, note: editNote.trim() }
       : item);
     setHistory(nextHistory);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextHistory));
+    persistHistory(nextHistory);
     const changedVersion = editTarget.version;
     closeRecordEditor();
     notify(`${changedVersion} 的归档信息已更新`);

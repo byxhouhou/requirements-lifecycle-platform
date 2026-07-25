@@ -4,6 +4,7 @@
 /node_modules
 /.npm-cache/
 /.wrangler/
+/.launcher-build/
 /.pnp
 .pnp.*
 .yarn/*
