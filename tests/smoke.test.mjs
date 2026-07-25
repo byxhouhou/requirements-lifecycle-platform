@@ -76,4 +76,8 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
   assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(page, /按钮名称,链接地址/);
+  assert.match(page, /type WorkspaceView = "requirements" \| "quick-links"/);
+  assert.match(page, /setWorkspaceView\("quick-links"\)/);
+  assert.match(page, /workspaceView !== "requirements" \? "view-hidden"/);
+  assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
 });

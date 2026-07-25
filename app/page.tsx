@@ -39,6 +39,7 @@ type BaselineCommit = {
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
+type WorkspaceView = "requirements" | "quick-links";
 
 type BeyondCompareStatus = {
   installed: boolean;
@@ -211,6 +212,7 @@ export default function Home() {
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
   const [archiveName, setArchiveName] = useState("");
   const [history, setHistory] = useState<BaselineCommit[]>([]);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("requirements");
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   const [quickLinkName, setQuickLinkName] = useState("");
   const [quickLinkUrl, setQuickLinkUrl] = useState("");
@@ -759,11 +761,15 @@ export default function Home() {
     <main className="app-shell">
       <aside className="rail">
         <div className="brand-mark">R</div>
-        <button className="rail-btn active" aria-label="需求输入">⇩</button>
         <button
-          className="rail-btn"
+          className={`rail-btn ${workspaceView === "requirements" ? "active" : ""}`}
+          aria-label="需求输入"
+          onClick={() => setWorkspaceView("requirements")}
+        >⇩</button>
+        <button
+          className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`}
           aria-label="快捷路径工具"
-          onClick={() => quickLinksRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          onClick={() => setWorkspaceView("quick-links")}
         >↗</button>
         <button className="rail-btn" aria-label="基线记录">▤</button>
         <button className="rail-btn" aria-label="归档管理">▣</button>
@@ -772,7 +778,7 @@ export default function Home() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
+        <header className={`topbar ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
           <div>
             <div className="eyebrow">需求工作空间 / Nova 系统平台</div>
             <div className="title-row">
@@ -789,7 +795,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="flow-strip" aria-label="基线建立流程">
+        <section className={`flow-strip ${workspaceView !== "requirements" ? "view-hidden" : ""}`} aria-label="基线建立流程">
           <div className={`flow-step ${documents.length ? "complete" : "current"}`}>
             <span>01</span><i>选择文件或文件夹</i><small>支持跨目录组合输入</small>
           </div>
@@ -803,12 +809,24 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="metrics">
+        <section className={`metrics ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
           <div><span>本次输入</span><strong>{documents.length}</strong><small>份有效文档</small></div>
           <div><span>输入容量</span><strong>{readableSize(totalSize)}</strong><small>待归档文件</small></div>
           <div><span>已有基线</span><strong>{history.length}</strong><small>次版本提交</small></div>
           <div><span>当前归档</span><strong className="folder-metric">{archiveName || "尚未设置"}</strong><small>{archiveName ? "可写入" : "请选择文件夹"}</small></div>
         </section>
+
+        <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
+          <header className="topbar quick-path-topbar">
+            <div>
+              <div className="eyebrow">需求工作空间 / 本地效率工具</div>
+              <div className="title-row">
+                <h1>快捷路径工具</h1>
+                <span className="local-badge">● 本地保存</span>
+              </div>
+            </div>
+            <div className="quick-path-count">{quickLinks.length} 个已保存按钮</div>
+          </header>
 
         <section className="quick-links card" ref={quickLinksRef}>
           <div className="quick-links-heading">
@@ -876,8 +894,9 @@ export default function Home() {
             )}
           </div>
         </section>
+        </div>
 
-        <section className="main-grid">
+        <section className={`main-grid ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
           <div className="main-column">
             <section className="card source-card">
               <div className="card-head">
