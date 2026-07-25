@@ -173,6 +173,8 @@ export default function Home() {
   const [beyondExecutable, setBeyondExecutable] = useState("");
   const [beyondLeftPath, setBeyondLeftPath] = useState("");
   const [beyondRightPath, setBeyondRightPath] = useState("");
+  const [beyondLeftVersionId, setBeyondLeftVersionId] = useState("");
+  const [beyondRightVersionId, setBeyondRightVersionId] = useState("");
   const [beyondPicking, setBeyondPicking] = useState(false);
   const [selectingDocuments, setSelectingDocuments] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<BaselineCommit | null>(null);
@@ -250,11 +252,22 @@ export default function Home() {
 
   useEffect(() => {
     if (comparisonMethod !== "beyond") return;
-    const basePath = boundComparisonPath(history.find(item => item.id === baseVersionId));
-    const targetPath = boundComparisonPath(history.find(item => item.id === targetVersionId));
-    if (!beyondLeftPath && basePath) setBeyondLeftPath(basePath);
-    if (!beyondRightPath && targetPath) setBeyondRightPath(targetPath);
-  }, [comparisonMethod, history, baseVersionId, targetVersionId, beyondLeftPath, beyondRightPath]);
+    if (beyondLeftVersionId !== baseVersionId) {
+      setBeyondLeftPath(boundComparisonPath(history.find(item => item.id === baseVersionId)));
+      setBeyondLeftVersionId(baseVersionId);
+    }
+    if (beyondRightVersionId !== targetVersionId) {
+      setBeyondRightPath(boundComparisonPath(history.find(item => item.id === targetVersionId)));
+      setBeyondRightVersionId(targetVersionId);
+    }
+  }, [
+    comparisonMethod,
+    history,
+    baseVersionId,
+    targetVersionId,
+    beyondLeftVersionId,
+    beyondRightVersionId,
+  ]);
 
   const notify = (message: string) => {
     setToast(message);
@@ -799,6 +812,8 @@ export default function Home() {
                     setCompareFullscreen(false);
                     setBeyondLeftPath(boundComparisonPath(selectedBaseVersion));
                     setBeyondRightPath(boundComparisonPath(selectedTargetVersion));
+                    setBeyondLeftVersionId(baseVersionId);
+                    setBeyondRightVersionId(targetVersionId);
                   }}
                 >
                   <b>Beyond Compare</b><small>调用本机程序</small>
@@ -980,6 +995,7 @@ export default function Home() {
                           const nextId = event.target.value;
                           setBaseVersionId(nextId);
                           setBeyondLeftPath(boundComparisonPath(history.find(item => item.id === nextId)));
+                          setBeyondLeftVersionId(nextId);
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (
@@ -994,6 +1010,7 @@ export default function Home() {
                           const nextId = event.target.value;
                           setTargetVersionId(nextId);
                           setBeyondRightPath(boundComparisonPath(history.find(item => item.id === nextId)));
+                          setBeyondRightVersionId(nextId);
                         }}>
                           {!history.length && <option value="">尚无归档版本</option>}
                           {history.map(item => (

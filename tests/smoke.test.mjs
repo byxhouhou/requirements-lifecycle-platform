@@ -56,6 +56,10 @@ test("Beyond Compare resolves selected version paths at launch time", async () =
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
   assert.match(page, /beyondComparePath\?: string/);
+  assert.match(page, /beyondLeftVersionId !== baseVersionId/);
+  assert.match(page, /beyondRightVersionId !== targetVersionId/);
+  assert.match(page, /setBeyondLeftVersionId\(nextId\)/);
+  assert.match(page, /setBeyondRightVersionId\(nextId\)/);
   assert.match(page, /const leftPath = beyondLeftPath\.trim\(\) \|\| boundComparisonPath\(selectedBaseVersion\)/);
   assert.match(page, /const rightPath = beyondRightPath\.trim\(\) \|\| boundComparisonPath\(selectedTargetVersion\)/);
   assert.match(page, /persistComparisonBindings/);
