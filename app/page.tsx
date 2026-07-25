@@ -197,6 +197,14 @@ export default function Home() {
 
   const totalSize = useMemo(() => documents.reduce((sum, doc) => sum + doc.size, 0), [documents]);
   const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
+  const selectedBaseVersion = useMemo(
+    () => history.find(item => item.id === baseVersionId),
+    [history, baseVersionId],
+  );
+  const selectedTargetVersion = useMemo(
+    () => history.find(item => item.id === targetVersionId),
+    [history, targetVersionId],
+  );
   const differenceRows = useMemo(
     () => diffRows.filter(row => row.type !== "file" && row.type !== "same"),
     [diffRows],
@@ -403,6 +411,8 @@ export default function Home() {
   };
 
   const launchBeyondCompare = async () => {
+    if (!baseVersionId || !targetVersionId) return notify("请选择基准版本和修改版本");
+    if (baseVersionId === targetVersionId) return notify("基准版本和修改版本不能相同");
     if (!beyondExecutable.trim()) return notify("请选择或填写 Beyond Compare 程序路径");
     if (!beyondLeftPath.trim() || !beyondRightPath.trim()) return notify("请填写左右两个文档路径");
     setBeyondWorking(true);
@@ -775,34 +785,67 @@ export default function Home() {
                     <div>
                       <strong>{beyondStatus?.installed ? `已检测到 Beyond Compare ${beyondStatus.version}` : "未自动检测到 Beyond Compare"}</strong>
                       <small>{beyondStatus?.installed
-                        ? "填写左右文档路径后，可直接打开本机 Beyond Compare。"
-                        : "可以手动填写 BCompare.exe 路径，或使用 ReqFlow.exe 的本机文件选择器。"}</small>
+                        ? "已使用本机程序；选择基准版本和修改版本，再填写对应文档路径。"
+                        : "未找到本机程序，请先选择 BCompare.exe，再填写两个版本的文档路径。"}</small>
                     </div>
                   </div>
 
                   <div className="beyond-fields">
-                    <label>
-                      <span>Beyond Compare 程序路径</span>
-                      <div className="path-input">
-                        <input
-                          value={beyondExecutable}
-                          onChange={event => setBeyondExecutable(event.target.value)}
-                          placeholder="例如 C:\Program Files\Beyond Compare 5\BCompare.exe"
-                        />
-                        <button
-                          onClick={() => void pickBeyondComparePath("program", setBeyondExecutable)}
-                          disabled={beyondWorking}
-                        >选择程序</button>
-                      </div>
-                    </label>
+                    {!beyondStatus?.installed && (
+                      <label className="beyond-program-fallback">
+                        <span>Beyond Compare 程序路径</span>
+                        <div className="path-input">
+                          <input
+                            value={beyondExecutable}
+                            onChange={event => setBeyondExecutable(event.target.value)}
+                            placeholder="例如 C:\Program Files\Beyond Compare 5\BCompare.exe"
+                          />
+                          <button
+                            onClick={() => void pickBeyondComparePath("program", setBeyondExecutable)}
+                            disabled={beyondWorking}
+                          >选择程序</button>
+                        </div>
+                      </label>
+                    )}
+
+                    <div className="beyond-version-controls">
+                      <label>
+                        <span>基准版本</span>
+                        <select value={baseVersionId} disabled={!history.length} onChange={event => {
+                          setBaseVersionId(event.target.value);
+                          setBeyondLeftPath("");
+                        }}>
+                          {!history.length && <option value="">尚无归档版本</option>}
+                          {history.map(item => (
+                            <option value={item.id} key={`beyond-base-${item.id}`}>{item.version} · {item.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <span>对比</span>
+                      <label>
+                        <span>修改版本</span>
+                        <select value={targetVersionId} disabled={!history.length} onChange={event => {
+                          setTargetVersionId(event.target.value);
+                          setBeyondRightPath("");
+                        }}>
+                          {!history.length && <option value="">尚无归档版本</option>}
+                          {history.map(item => (
+                            <option value={item.id} key={`beyond-target-${item.id}`}>{item.version} · {item.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
                     <div className="beyond-document-paths">
                       <label>
-                        <span>左侧文档路径</span>
+                        <span>基准版本文档路径 · {selectedBaseVersion?.version || "未选择版本"}</span>
                         <div className="path-input">
                           <input
                             value={beyondLeftPath}
                             onChange={event => setBeyondLeftPath(event.target.value)}
-                            placeholder="输入或选择基准文档完整路径"
+                            placeholder={selectedBaseVersion?.snapshots?.[0]?.path
+                              ? `选择“${selectedBaseVersion.snapshots[0].path}”的本机完整路径`
+                              : "输入或选择基准版本文档完整路径"}
                           />
                           <button
                             onClick={() => void pickBeyondComparePath("document", setBeyondLeftPath)}
@@ -819,12 +862,14 @@ export default function Home() {
                         aria-label="交换左右文档路径"
                       >⇄</button>
                       <label>
-                        <span>右侧文档路径</span>
+                        <span>修改版本文档路径 · {selectedTargetVersion?.version || "未选择版本"}</span>
                         <div className="path-input">
                           <input
                             value={beyondRightPath}
                             onChange={event => setBeyondRightPath(event.target.value)}
-                            placeholder="输入或选择目标文档完整路径"
+                            placeholder={selectedTargetVersion?.snapshots?.[0]?.path
+                              ? `选择“${selectedTargetVersion.snapshots[0].path}”的本机完整路径`
+                              : "输入或选择修改版本文档完整路径"}
                           />
                           <button
                             onClick={() => void pickBeyondComparePath("document", setBeyondRightPath)}
@@ -838,7 +883,9 @@ export default function Home() {
                   <div className="beyond-actions">
                     <p>路径只发送给当前电脑上的 ReqFlow 启动器，不会上传或保存到外部服务。</p>
                     <button onClick={() => void launchBeyondCompare()} disabled={beyondWorking}>
-                      {beyondWorking ? "正在处理…" : "打开 Beyond Compare 对比"}
+                      {beyondWorking
+                        ? "正在处理…"
+                        : `对比 ${selectedBaseVersion?.version || "基准版本"} ↔ ${selectedTargetVersion?.version || "修改版本"}`}
                     </button>
                   </div>
                 </div>
