@@ -7,6 +7,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,6 +61,36 @@ namespace ReqFlowLauncher
 
     internal sealed class ReqFlowContext : ApplicationContext
     {
+        private delegate bool EnumThreadWindowsCallback(IntPtr windowHandle, IntPtr state);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumThreadWindows(
+            uint threadId,
+            EnumThreadWindowsCallback callback,
+            IntPtr state);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(
+            IntPtr windowHandle,
+            IntPtr insertAfter,
+            int x,
+            int y,
+            int width,
+            int height,
+            uint flags);
+
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private readonly string appRoot;
         private readonly string statePath;
@@ -584,10 +615,36 @@ namespace ReqFlowLauncher
                 owner.Location = new Point(
                     workingArea.Left + workingArea.Width / 2,
                     workingArea.Top + workingArea.Height / 2);
+                var currentThreadId = GetCurrentThreadId();
                 owner.Show();
                 owner.BringToFront();
                 owner.Activate();
-                return dialog.ShowDialog(owner);
+
+                using (var foregroundTimer = new System.Windows.Forms.Timer())
+                {
+                    foregroundTimer.Interval = 80;
+                    foregroundTimer.Tick += delegate
+                    {
+                        EnumThreadWindows(currentThreadId, delegate(IntPtr windowHandle, IntPtr state)
+                        {
+                            if (windowHandle == owner.Handle || !IsWindowVisible(windowHandle)) return true;
+                            SetWindowPos(
+                                windowHandle,
+                                new IntPtr(-1),
+                                0,
+                                0,
+                                0,
+                                0,
+                                0x0001 | 0x0002 | 0x0040);
+                            BringWindowToTop(windowHandle);
+                            SetForegroundWindow(windowHandle);
+                            foregroundTimer.Stop();
+                            return false;
+                        }, IntPtr.Zero);
+                    };
+                    foregroundTimer.Start();
+                    return dialog.ShowDialog(owner);
+                }
             }
         }
 

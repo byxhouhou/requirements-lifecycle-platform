@@ -544,9 +544,25 @@ export default function Home() {
   const launchBeyondCompare = async () => {
     if (!baseVersionId || !targetVersionId) return notify("请选择基准版本和修改版本");
     if (baseVersionId === targetVersionId) return notify("基准版本和修改版本不能相同");
-    if (!beyondExecutable.trim()) return notify("请选择或填写 Beyond Compare 程序路径");
-    if (!beyondLeftPath.trim() || !beyondRightPath.trim()) return notify("请填写左右两个文档路径");
+    const leftPath = preferredSourcePath(selectedBaseVersion) || beyondLeftPath.trim();
+    const rightPath = preferredSourcePath(selectedTargetVersion) || beyondRightPath.trim();
+    if (!leftPath || !rightPath) return notify("所选版本没有保存文档路径，请先选择对应文件");
+    setBeyondLeftPath(leftPath);
+    setBeyondRightPath(rightPath);
+
     try {
+      let executablePath = beyondExecutable.trim();
+      if (!executablePath) {
+        const statusResponse = await fetch("/api/integrations/beyond-compare/status", {
+          headers: { Accept: "application/json" },
+        });
+        if (!statusResponse.ok) throw new Error("beyond_status_unavailable");
+        const status = await statusResponse.json() as BeyondCompareStatus;
+        if (!status.installed || !status.executablePath) throw new Error("beyond_not_installed");
+        executablePath = status.executablePath;
+        setBeyondStatus(status);
+        setBeyondExecutable(executablePath);
+      }
       const response = await fetch("/api/integrations/beyond-compare/launch", {
         method: "POST",
         headers: {
@@ -554,9 +570,9 @@ export default function Home() {
           "X-ReqFlow-Integration": "beyond-compare",
         },
         body: JSON.stringify({
-          executablePath: beyondExecutable.trim(),
-          leftPath: beyondLeftPath.trim(),
-          rightPath: beyondRightPath.trim(),
+          executablePath,
+          leftPath,
+          rightPath,
         }),
       });
       const payload = await response.json() as { launched?: boolean; error?: string };

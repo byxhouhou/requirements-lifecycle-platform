@@ -30,6 +30,9 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
   assert.match(launcher, /localFileTokens/);
   assert.match(launcher, /ShowOwnedDialog/);
   assert.match(launcher, /Screen\.FromPoint\(Cursor\.Position\)/);
+  assert.match(launcher, /EnumThreadWindows/);
+  assert.match(launcher, /SetWindowPos/);
+  assert.match(launcher, /SetForegroundWindow/);
   assert.doesNotMatch(launcher, /Point\(-32000, -32000\)/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/status/);
   assert.match(launcher, /\/api\/integrations\/beyond-compare\/pick/);
@@ -47,4 +50,13 @@ test("development mode opens the browser file chooser synchronously", async () =
   assert.match(page, /folderInputRef\.current\?\.click\(\)/);
   assert.match(page, /aria-label="选择一个或多个需求文档"/);
   assert.match(page, /void chooseDocuments\("files"\)/);
+});
+
+test("Beyond Compare resolves selected version paths at launch time", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /const leftPath = preferredSourcePath\(selectedBaseVersion\)/);
+  assert.match(page, /const rightPath = preferredSourcePath\(selectedTargetVersion\)/);
+  assert.match(page, /setBeyondLeftPath\(leftPath\)/);
+  assert.match(page, /setBeyondRightPath\(rightPath\)/);
 });
