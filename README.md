@@ -136,7 +136,7 @@ npm run build
 
 ### Windows 单文件版
 
-仓库提供 `release/ReqFlow.exe`。双击后会：
+仓库提供 `release/SYE.exe`（推荐入口，使用绿色 SYE 图标）和兼容入口 `release/ReqFlow.exe`。双击后会：
 
 1. 在 `127.0.0.1:37651` 启动仅限本机访问的服务。
 2. 自动打开默认浏览器。

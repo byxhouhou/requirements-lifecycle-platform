@@ -10,10 +10,12 @@ $webArchive = Join-Path $workingDir "ReqFlow.Web.zip"
 $compiler = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $source = Join-Path $PSScriptRoot "ReqFlowLauncher.cs"
 $output = Join-Path $releaseDir "ReqFlow.exe"
+$brandedOutput = Join-Path $releaseDir "SYE.exe"
 $updaterSource = Join-Path $PSScriptRoot "ReqFlowUpdater.cs"
 $updaterOutput = Join-Path $releaseDir "ReqFlowUpdater.exe"
 $assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
 $hashOutput = Join-Path $releaseDir "ReqFlow.exe.sha256"
+$brandedHashOutput = Join-Path $releaseDir "SYE.exe.sha256"
 $iconOutput = Join-Path $releaseDir "SYE.ico"
 $iconPreview = Join-Path $releaseDir "SYE-icon.png"
 $iconSource = Join-Path $projectRoot "assets\branding\SYE-tile-green.png"
@@ -154,8 +156,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "ReqFlow.exe compilation failed."
 }
 
+Copy-Item -LiteralPath $output -Destination $brandedOutput -Force
 $hash = (Get-FileHash -Algorithm SHA256 $output).Hash
 Set-Content -Encoding ASCII -Path $hashOutput -Value "$hash *ReqFlow.exe"
+Set-Content -Encoding ASCII -Path $brandedHashOutput -Value "$hash *SYE.exe"
 
 & $compiler `
     /nologo `
@@ -174,6 +178,8 @@ if ($LASTEXITCODE -ne 0) {
 
 $updaterHash = (Get-FileHash -Algorithm SHA256 $updaterOutput).Hash
 Write-Output "Created: $output"
+Write-Output "SHA256: $hash"
+Write-Output "Created: $brandedOutput"
 Write-Output "SHA256: $hash"
 Write-Output "Created: $updaterOutput"
 Write-Output "SHA256: $updaterHash"

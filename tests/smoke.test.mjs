@@ -10,6 +10,14 @@ test("production build contains the local ReqFlow entry page", async () => {
   assert.doesNotMatch(html, /https?:\/\/(?!127\.0\.0\.1|localhost)/);
 });
 
+test("Windows release provides a cache-safe SYE executable entry", async () => {
+  const executable = await readFile(new URL("../release/SYE.exe", import.meta.url));
+  const hashFile = await readFile(new URL("../release/SYE.exe.sha256", import.meta.url), "utf8");
+
+  assert.ok(executable.length > 100_000);
+  assert.match(hashFile, /\*SYE\.exe/);
+});
+
 test("Windows release includes a verified standalone updater", async () => {
   const executable = await readFile(new URL("../release/ReqFlow.exe", import.meta.url));
   const updater = await readFile(new URL("../release/ReqFlowUpdater.exe", import.meta.url));
