@@ -279,7 +279,7 @@ namespace ReqFlowLauncher
             {
                 var body = File.Exists(statePath)
                     ? File.ReadAllBytes(statePath)
-                    : Encoding.UTF8.GetBytes("{\"schemaVersion\":3,\"history\":[],\"quickLinks\":[]}");
+                    : Encoding.UTF8.GetBytes("{\"schemaVersion\":4,\"history\":[],\"quickLinks\":[],\"projectName\":\"\"}");
                 WriteResponse(stream, 200, "application/json; charset=utf-8", body, false);
                 return;
             }
