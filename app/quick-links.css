@@ -5,6 +5,9 @@
 .brand-mark {
   font-size: 10px;
   letter-spacing: -0.4px;
+  background: linear-gradient(145deg, #54e99a, #20b96d);
+  color: #071521;
+  box-shadow: 0 8px 22px #39d98a44;
 }
 
 .quick-path-workspace {

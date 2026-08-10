@@ -95,7 +95,8 @@ test("quick path tool imports, persists, validates and opens configured links", 
 test("Windows package embeds the generated SYE application icon", async () => {
   const script = await readFile(new URL("../launcher/build-exe.ps1", import.meta.url), "utf8");
 
-  assert.match(script, /DrawString\("SYE"/);
+  assert.match(script, /SYE-tile-green\.png/);
+  assert.match(script, /DrawImage\(\$sourceIconImage/);
   assert.match(script, /\/win32icon:\$iconOutput/);
   assert.match(script, /SYE-icon\.png/);
 });

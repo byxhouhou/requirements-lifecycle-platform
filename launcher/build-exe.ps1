@@ -16,9 +16,13 @@ $assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
 $hashOutput = Join-Path $releaseDir "ReqFlow.exe.sha256"
 $iconOutput = Join-Path $releaseDir "SYE.ico"
 $iconPreview = Join-Path $releaseDir "SYE-icon.png"
+$iconSource = Join-Path $projectRoot "assets\branding\SYE-tile-green.png"
 
 if (-not (Test-Path $compiler)) {
     throw "Windows C# compiler was not found: $compiler"
+}
+if (-not (Test-Path $iconSource)) {
+    throw "SYE icon source was not found: $iconSource"
 }
 
 if (-not $SkipWebBuild) {
@@ -48,24 +52,13 @@ if (Test-Path $workingDir) {
 New-Item -ItemType Directory -Path $workingDir -Force | Out-Null
 
 Add-Type -AssemblyName System.Drawing
+$sourceIconImage = [System.Drawing.Image]::FromFile($iconSource)
 $iconBitmap = New-Object System.Drawing.Bitmap 256, 256
 $iconGraphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
 try {
-    $iconGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $iconGraphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-    $iconGraphics.Clear([System.Drawing.Color]::FromArgb(93, 68, 213))
-    $highlightBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(130, 108, 255))
-    $iconGraphics.FillEllipse($highlightBrush, -70, -95, 300, 230)
-    $highlightBrush.Dispose()
-    $font = New-Object System.Drawing.Font "Segoe UI", 70, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $textBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-    $format = New-Object System.Drawing.StringFormat
-    $format.Alignment = [System.Drawing.StringAlignment]::Center
-    $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $iconGraphics.DrawString("SYE", $font, $textBrush, (New-Object System.Drawing.RectangleF 0, 0, 256, 250), $format)
-    $font.Dispose()
-    $textBrush.Dispose()
-    $format.Dispose()
+    $iconGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $iconGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $iconGraphics.DrawImage($sourceIconImage, 0, 0, 256, 256)
     $iconBitmap.Save($iconPreview, [System.Drawing.Imaging.ImageFormat]::Png)
     $iconHandle = $iconBitmap.GetHicon()
     $icon = [System.Drawing.Icon]::FromHandle($iconHandle)
@@ -75,6 +68,7 @@ try {
 finally {
     $iconGraphics.Dispose()
     $iconBitmap.Dispose()
+    $sourceIconImage.Dispose()
 }
 
 Compress-Archive -Path (Join-Path $projectRoot "dist\*") -DestinationPath $webArchive -CompressionLevel Optimal
