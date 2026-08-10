@@ -108,3 +108,18 @@ test("Windows package embeds the generated SYE application icon", async () => {
   assert.match(script, /\/win32icon:\$iconOutput/);
   assert.match(script, /SYE-icon\.png/);
 });
+
+test("local Git projects create repositories and commit tagged baselines", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
+
+  assert.match(page, /\/api\/git-projects\/create/);
+  assert.match(page, /\/api\/git-projects\/commit/);
+  assert.match(page, /currentProject\.path/);
+  assert.match(page, /Commit \+ Tag \+ 元数据/);
+  assert.match(launcher, /RunGit\(projectPath, "init"/);
+  assert.match(launcher, /RunGit\(projectPath, "commit -m "/);
+  assert.match(launcher, /RunGit\(projectPath, "tag -a "/);
+  assert.match(launcher, /metadata", "baselines/);
+  assert.match(launcher, /未找到本机 Git/);
+});

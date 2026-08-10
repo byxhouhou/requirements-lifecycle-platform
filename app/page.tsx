@@ -5,6 +5,7 @@ import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
 import "./quick-links.css";
+import "./git-project.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -36,7 +37,12 @@ type BaselineCommit = {
   snapshots?: SnapshotFile[];
   sourcePaths?: SourceDocumentPath[];
   beyondComparePath?: string;
+  projectName?: string;
+  projectPath?: string;
+  gitTag?: string;
 };
+
+type GitProject = { name: string; path: string };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
 type WorkspaceView = "requirements" | "quick-links";
@@ -81,6 +87,7 @@ declare global {
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
 const QUICK_LINKS_STORAGE_KEY = "reqflow-quick-links-v1";
+const GIT_PROJECT_STORAGE_KEY = "sye-current-git-project-v1";
 const DEFAULT_QUICK_LINK_PROJECT = "默认项目";
 
 const normalizeQuickLinks = (links: QuickLink[]) => links.map(link => ({
@@ -109,34 +116,42 @@ const readBrowserQuickLinks = (): QuickLink[] => {
   }
 };
 
-const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickLinks: QuickLink[] }> => {
+const readBrowserProject = (): GitProject | null => {
+  try { return JSON.parse(localStorage.getItem(GIT_PROJECT_STORAGE_KEY) || "null"); }
+  catch { return null; }
+};
+
+const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickLinks: QuickLink[]; currentProject: GitProject | null }> => {
   const browserHistory = readBrowserHistory();
   const browserQuickLinks = readBrowserQuickLinks();
+  const browserProject = readBrowserProject();
   try {
     const response = await fetch("/api/state", {
       method: "GET",
       headers: { Accept: "application/json" },
     });
     if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
-      return { history: browserHistory, quickLinks: browserQuickLinks };
+      return { history: browserHistory, quickLinks: browserQuickLinks, currentProject: browserProject };
     }
-    const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[] };
+    const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[]; currentProject?: GitProject | null };
     return {
       history: Array.isArray(payload.history) ? payload.history : browserHistory,
       quickLinks: Array.isArray(payload.quickLinks) ? normalizeQuickLinks(payload.quickLinks) : browserQuickLinks,
+      currentProject: payload.currentProject || browserProject,
     };
   } catch {
-    return { history: browserHistory, quickLinks: browserQuickLinks };
+    return { history: browserHistory, quickLinks: browserQuickLinks, currentProject: browserProject };
   }
 };
 
-const persistState = (history: BaselineCommit[], quickLinks: QuickLink[]) => {
+const persistState = (history: BaselineCommit[], quickLinks: QuickLink[], currentProject: GitProject | null) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
   localStorage.setItem(QUICK_LINKS_STORAGE_KEY, JSON.stringify(quickLinks));
+  localStorage.setItem(GIT_PROJECT_STORAGE_KEY, JSON.stringify(currentProject));
   void fetch("/api/state", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schemaVersion: 3, history, quickLinks }),
+    body: JSON.stringify({ schemaVersion: 4, history, quickLinks, currentProject }),
   }).catch(() => {
     // Development mode has no local EXE persistence API; browser storage remains available.
   });
@@ -260,6 +275,8 @@ export default function Home() {
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
   const [archiveName, setArchiveName] = useState("");
   const [history, setHistory] = useState<BaselineCommit[]>([]);
+  const [currentProject, setCurrentProject] = useState<GitProject | null>(null);
+  const [projectNameDraft, setProjectNameDraft] = useState("");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("requirements");
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   const [quickLinkScreen, setQuickLinkScreen] = useState<QuickLinkScreen>("list");
@@ -304,6 +321,8 @@ export default function Home() {
     void loadPersistedState().then(state => {
       setHistory(state.history);
       setQuickLinks(state.quickLinks);
+      setCurrentProject(state.currentProject);
+      setProjectNameDraft(state.currentProject?.name || "");
     });
   }, []);
 
@@ -349,14 +368,18 @@ export default function Home() {
     });
     return Array.from(groups.entries()).map(([project, links]) => ({ project, links }));
   }, [quickLinks]);
-  const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
+  const projectHistory = useMemo(
+    () => currentProject ? history.filter(item => item.projectPath === currentProject.path) : [],
+    [history, currentProject],
+  );
+  const comparableVersions = useMemo(() => projectHistory.filter(item => item.snapshots?.length), [projectHistory]);
   const selectedBaseVersion = useMemo(
-    () => history.find(item => item.id === baseVersionId),
-    [history, baseVersionId],
+    () => projectHistory.find(item => item.id === baseVersionId),
+    [projectHistory, baseVersionId],
   );
   const selectedTargetVersion = useMemo(
-    () => history.find(item => item.id === targetVersionId),
-    [history, targetVersionId],
+    () => projectHistory.find(item => item.id === targetVersionId),
+    [projectHistory, targetVersionId],
   );
   const differenceRows = useMemo(
     () => diffRows.filter(row => row.type !== "file" && row.type !== "same"),
@@ -412,7 +435,7 @@ export default function Home() {
       return path ? { ...item, beyondComparePath: path } : item;
     });
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks);
+    persistState(nextHistory, quickLinks, currentProject);
   };
 
   const importDocuments = (event: ChangeEvent<HTMLInputElement>, mode: "folder" | "files") => {
@@ -529,20 +552,45 @@ export default function Home() {
     }
   };
 
+  const createGitProject = async () => {
+    const name = projectNameDraft.trim();
+    if (!name) return notify("请先填写项目名称");
+    setWorking(true);
+    try {
+      const response = await fetch("/api/git-projects/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const payload = await response.json() as { name?: string; path?: string; error?: string };
+      if (!response.ok || !payload.name || !payload.path) throw new Error(payload.error || "项目创建失败");
+      const project = { name: payload.name, path: payload.path };
+      setCurrentProject(project);
+      setProjectNameDraft(project.name);
+      setBaseVersionId("");
+      setTargetVersionId("");
+      setDiffRows([]);
+      persistState(history, quickLinks, project);
+      notify(`本地 Git 项目“${project.name}”已就绪`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "无法创建本地 Git 项目");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const removeDoc = (id: string) => {
     setDocuments(items => items.filter(item => item.id !== id));
   };
 
   const createBaseline = async () => {
+    if (!currentProject) return notify("请先创建本地 Git 项目");
     if (!documents.length) return notify("请先选择需求输入文件夹");
-    if (!archiveHandle) return notify("请先设置归档文件夹");
     if (!version.trim()) return notify("请填写基线版本号");
+    if (documents.some(doc => !doc.absolutePath)) return notify("Git 基线提交需要使用 SYE.exe 选择本机文档");
 
     setWorking(true);
     try {
-      const commitId = Math.abs(documents.reduce((hash, doc) =>
-        ((hash << 5) - hash + doc.name.length + doc.size + doc.file.lastModified) | 0, Date.now() & 0xfffffff))
-        .toString(16).slice(0, 7).padStart(7, "0");
       const snapshots = await snapshotDocuments(documents);
       const sourcePaths = documents
         .filter(doc => Boolean(doc.absolutePath))
@@ -551,78 +599,46 @@ export default function Home() {
           path: doc.absolutePath as string,
           relativePath: doc.path,
         }));
+      const response = await fetch("/api/git-projects/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectPath: currentProject.path,
+          version: version.trim(),
+          date: commitDate,
+          changeType,
+          author: author.trim() || "未署名",
+          note: note.trim() || "无补充说明",
+          documents: sourcePaths,
+          snapshots,
+        }),
+      });
+      const result = await response.json() as { commitId?: string; tag?: string; error?: string };
+      if (!response.ok || !result.commitId) throw new Error(result.error || "Git 提交失败");
       const commit: BaselineCommit = {
-        id: commitId,
+        id: result.commitId,
         version: version.trim(),
         date: commitDate,
         type: changeType,
         note: note.trim() || "无补充说明",
         author: author.trim() || "未署名",
-        archive: archiveHandle.name,
+        archive: currentProject.path,
         fileCount: documents.length,
         createdAt: new Date().toISOString(),
         snapshots,
         sourcePaths,
+        projectName: currentProject.name,
+        projectPath: currentProject.path,
+        gitTag: result.tag,
       };
-      const projectFolder = await archiveHandle.getDirectoryHandle("系统需求基线", { create: true });
-      const versionFolder = await projectFolder.getDirectoryHandle(safeName(`${commitDate}_${version}_${commitId}`), { create: true });
-      const filesFolder = await versionFolder.getDirectoryHandle("source-documents", { create: true });
-
-      for (const [index, doc] of documents.entries()) {
-        await writeFile(filesFolder, `${String(index + 1).padStart(2, "0")}_${doc.name}`, doc.file);
-      }
-
-      const archivableCommit: BaselineCommit = { ...commit };
-      delete archivableCommit.sourcePaths;
-      delete archivableCommit.beyondComparePath;
-      const manifest = {
-        schema: "reqflow-baseline/v1",
-        ...archivableCommit,
-        sourceFolder,
-        documents: documents.map(doc => ({
-          name: doc.name,
-          relativePath: doc.path,
-          format: doc.format,
-          size: doc.size,
-          lastModified: new Date(doc.file.lastModified).toISOString(),
-        })),
-      };
-      const baseline = [
-        `# 系统需求基线 ${commit.version}`,
-        "",
-        `- 提交编号：${commit.id}`,
-        `- 基线日期：${commit.date}`,
-        `- 变更类型：${commit.type}`,
-        `- 提交人：${commit.author}`,
-        `- 来源文件夹：${sourceFolder}`,
-        `- 归档文件夹：${commit.archive}`,
-        `- 备注：${commit.note}`,
-        "",
-        "## 输入文档清单",
-        "",
-        ...documents.map((doc, index) => `${index + 1}. ${doc.name}（${doc.format}，${readableSize(doc.size)}）`),
-        "",
-        "> 本文件由 ReqFlow 自动生成，与 manifest.json 及 source-documents 共同构成本次基线。",
-      ].join("\n");
-      await writeFile(versionFolder, "baseline-requirements.md", baseline);
-      await writeFile(versionFolder, "manifest.json", JSON.stringify(manifest, null, 2));
-
       const nextHistory = [commit, ...history];
-      const changelog = [
-        "# 系统需求基线变更记录",
-        "",
-        ...nextHistory.map(item =>
-          `## ${item.version} · ${item.id}\n\n- 日期：${item.date}\n- 类型：${item.type}\n- 提交人：${item.author}\n- 文档：${item.fileCount} 份\n- 备注：${item.note}\n`
-        ),
-      ].join("\n");
-      await writeFile(projectFolder, "CHANGELOG.md", changelog);
       setHistory(nextHistory);
-      persistState(nextHistory, quickLinks);
+      persistState(nextHistory, quickLinks, currentProject);
       setNote("");
-      notify(`${commit.version} 已建立并写入归档文件夹`);
+      notify(`${commit.version} 已提交到 Git（${commit.id}）并创建标签 ${commit.gitTag}`);
     } catch (error) {
       console.error(error);
-      notify("归档写入失败，请确认文件夹写入权限");
+      notify(error instanceof Error ? error.message : "Git 基线提交失败");
     } finally {
       setWorking(false);
     }
@@ -733,7 +749,7 @@ export default function Home() {
     if (!deleteTarget) return;
     const nextHistory = history.filter(item => item.id !== deleteTarget.id);
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks);
+    persistState(nextHistory, quickLinks, currentProject);
     if (baseVersionId === deleteTarget.id) setBaseVersionId("");
     if (targetVersionId === deleteTarget.id) setTargetVersionId("");
     if (baseVersionId === deleteTarget.id || targetVersionId === deleteTarget.id) {
@@ -774,7 +790,7 @@ export default function Home() {
       ? { ...item, type: editType, note: editNote.trim() }
       : item);
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks);
+    persistState(nextHistory, quickLinks, currentProject);
     const changedVersion = editTarget.version;
     closeRecordEditor();
     notify(`${changedVersion} 的归档信息已更新`);
@@ -782,7 +798,7 @@ export default function Home() {
 
   const saveQuickLinks = (nextLinks: QuickLink[]) => {
     setQuickLinks(nextLinks);
-    persistState(history, nextLinks);
+    persistState(history, nextLinks, currentProject);
   };
 
   const addQuickLink = () => {
@@ -887,6 +903,17 @@ export default function Home() {
           </div>
         </header>
 
+        <section className={`git-project-bar ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
+          <div className="git-project-logo">⑂</div>
+          <div className="git-project-status">
+            <span>LOCAL GIT PROJECT</span>
+            <strong>{currentProject?.name || "尚未创建项目"}</strong>
+            <small>{currentProject?.path || "每个需求项目使用一个独立的本地 Git 仓库"}</small>
+          </div>
+          <label><span>项目名称</span><input value={projectNameDraft} onChange={event => setProjectNameDraft(event.target.value)} placeholder="例如：Nova系统平台" /></label>
+          <button onClick={() => void createGitProject()} disabled={working}>{currentProject ? "打开或切换项目" : "创建 Git 项目"}</button>
+        </section>
+
         <section className={`flow-strip ${workspaceView !== "requirements" ? "view-hidden" : ""}`} aria-label="基线建立流程">
           <div className={`flow-step ${documents.length ? "complete" : "current"}`}>
             <span>01</span><i>选择文件或文件夹</i><small>支持跨目录组合输入</small>
@@ -904,8 +931,8 @@ export default function Home() {
         <section className={`metrics ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
           <div><span>本次输入</span><strong>{documents.length}</strong><small>份有效文档</small></div>
           <div><span>输入容量</span><strong>{readableSize(totalSize)}</strong><small>待归档文件</small></div>
-          <div><span>已有基线</span><strong>{history.length}</strong><small>次版本提交</small></div>
-          <div><span>当前归档</span><strong className="folder-metric">{archiveName || "尚未设置"}</strong><small>{archiveName ? "可写入" : "请选择文件夹"}</small></div>
+          <div><span>已有基线</span><strong>{projectHistory.length}</strong><small>当前项目提交</small></div>
+          <div><span>当前 Git 项目</span><strong className="folder-metric">{currentProject?.name || "尚未创建"}</strong><small>{currentProject ? "本地仓库已就绪" : "请先创建项目"}</small></div>
         </section>
 
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
@@ -1319,14 +1346,14 @@ export default function Home() {
                     <div className="beyond-version-controls">
                       <label>
                         <span>基准版本</span>
-                        <select value={baseVersionId} disabled={!history.length} onChange={event => {
+                        <select value={baseVersionId} disabled={!projectHistory.length} onChange={event => {
                           const nextId = event.target.value;
                           setBaseVersionId(nextId);
                           setBeyondLeftPath(boundComparisonPath(history.find(item => item.id === nextId)));
                           setBeyondLeftVersionId(nextId);
                         }}>
-                          {!history.length && <option value="">尚无归档版本</option>}
-                          {history.map(item => (
+                          {!projectHistory.length && <option value="">尚无归档版本</option>}
+                          {projectHistory.map(item => (
                             <option value={item.id} key={`beyond-base-${item.id}`}>{item.version} · {item.id}</option>
                           ))}
                         </select>
@@ -1334,14 +1361,14 @@ export default function Home() {
                       <span>对比</span>
                       <label>
                         <span>修改版本</span>
-                        <select value={targetVersionId} disabled={!history.length} onChange={event => {
+                        <select value={targetVersionId} disabled={!projectHistory.length} onChange={event => {
                           const nextId = event.target.value;
                           setTargetVersionId(nextId);
                           setBeyondRightPath(boundComparisonPath(history.find(item => item.id === nextId)));
                           setBeyondRightVersionId(nextId);
                         }}>
-                          {!history.length && <option value="">尚无归档版本</option>}
-                          {history.map(item => (
+                          {!projectHistory.length && <option value="">尚无归档版本</option>}
+                          {projectHistory.map(item => (
                             <option value={item.id} key={`beyond-target-${item.id}`}>{item.version} · {item.id}</option>
                           ))}
                         </select>
@@ -1453,13 +1480,13 @@ export default function Home() {
             <section className="card history-card">
               <div className="card-head">
                 <div><span className="section-kicker">DOCUMENT ARCHIVE</span><h2>文档归档记录</h2></div>
-                <span className="history-count">{history.length} 次归档</span>
+                <span className="history-count">{projectHistory.length} 次归档</span>
               </div>
-              {!history.length ? (
+              {!projectHistory.length ? (
                 <div className="empty-history"><span>⌁</span><p>尚无文档归档记录</p><small>完成首次归档后，记录会显示在这里</small></div>
               ) : (
                 <div className="timeline">
-                  {history.map((item, index) => (
+                  {projectHistory.map((item, index) => (
                     <article className="commit" key={`${item.id}-${index}`}>
                       <div className="commit-line"><i /></div>
                       <div className="commit-main">
@@ -1469,7 +1496,7 @@ export default function Home() {
                           <button className="delete-record" onClick={() => setDeleteTarget(item)} aria-label={`删除 ${item.version} 记录`}>删除</button>
                         </div>
                         <p>{item.note}</p>
-                        <small>{item.date} · {item.author} · {item.fileCount} 份文档 · 归档至 {item.archive}</small>
+                        <small>{item.projectName} · {item.date} · {item.author} · {item.fileCount} 份文档 · Git {item.id}</small>
                       </div>
                     </article>
                   ))}
@@ -1494,21 +1521,20 @@ export default function Home() {
             <label>提交人<input value={author} onChange={event => setAuthor(event.target.value)} /></label>
             <label>变更说明 / 备注<textarea placeholder="说明本次输入文档的来源、变更原因或评审结论…" value={note} onChange={event => setNote(event.target.value)} /></label>
 
-            <div className="archive-box">
+            <div className="archive-box git-repository-box">
               <div className="archive-icon">▣</div>
-              <div><small>归档文件夹</small><strong>{archiveName || "尚未设置"}</strong><span>{archiveName ? "将生成版本目录、清单与变更记录" : "选择一个本机文件夹用于保存基线"}</span></div>
-              <button onClick={chooseArchive}>{archiveName ? "更改" : "设置"}</button>
+              <div><small>Git 仓库</small><strong>{currentProject?.name || "尚未创建"}</strong><span>{currentProject ? currentProject.path : "请在页面顶部创建本地项目"}</span></div>
             </div>
 
             <div className="commit-summary">
               <div><span>将归档</span><strong>{documents.length} 份文档</strong></div>
-              <div><span>生成内容</span><strong>基线文档 + 清单</strong></div>
+              <div><span>生成内容</span><strong>Commit + Tag + 元数据</strong></div>
             </div>
 
             <button className="commit-button" onClick={createBaseline} disabled={working}>
-              <span>⑂</span>{working ? "正在写入归档…" : "建立并提交基线"}
+              <span>⑂</span>{working ? "正在提交 Git…" : "建立并提交 Git 基线"}
             </button>
-            <p className="privacy-note">所有文档仅在本机读取并写入你选择的归档目录，不会上传。</p>
+            <p className="privacy-note">所有文档和 Git 历史仅保存在本机，不会连接远程仓库或上传。</p>
           </aside>
         </section>
       </section>

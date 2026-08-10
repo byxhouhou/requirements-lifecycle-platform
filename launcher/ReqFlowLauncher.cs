@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -94,6 +95,7 @@ namespace ReqFlowLauncher
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
         private readonly string appRoot;
         private readonly string statePath;
+        private readonly string projectsRoot;
         private readonly TcpListener listener;
         private readonly CancellationTokenSource cancellation = new CancellationTokenSource();
         private readonly NotifyIcon trayIcon;
@@ -107,6 +109,7 @@ namespace ReqFlowLauncher
             var reqFlowRoot = Path.Combine(localData, "ReqFlow");
             appRoot = Path.Combine(reqFlowRoot, "app");
             statePath = Path.Combine(reqFlowRoot, "data", "state.json");
+            projectsRoot = Path.Combine(reqFlowRoot, "projects");
 
             ExtractWebApplication();
 
@@ -227,6 +230,11 @@ namespace ReqFlowLauncher
                         HandleStateRequest(stream, request);
                         return;
                     }
+                    if (request.Path.StartsWith("/api/git-projects/", StringComparison.Ordinal))
+                    {
+                        HandleGitProjectRequest(stream, request);
+                        return;
+                    }
                     if (request.Path.StartsWith("/api/integrations/beyond-compare/", StringComparison.Ordinal))
                     {
                         HandleBeyondCompareRequest(stream, request);
@@ -279,7 +287,7 @@ namespace ReqFlowLauncher
             {
                 var body = File.Exists(statePath)
                     ? File.ReadAllBytes(statePath)
-                    : Encoding.UTF8.GetBytes("{\"schemaVersion\":3,\"history\":[],\"quickLinks\":[]}");
+                    : Encoding.UTF8.GetBytes("{\"schemaVersion\":4,\"history\":[],\"quickLinks\":[],\"currentProject\":null}");
                 WriteResponse(stream, 200, "application/json; charset=utf-8", body, false);
                 return;
             }
@@ -301,6 +309,167 @@ namespace ReqFlowLauncher
             }
 
             WriteResponse(stream, 405, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"error\":\"method_not_allowed\"}"), false);
+        }
+
+        private void HandleGitProjectRequest(NetworkStream stream, HttpRequest request)
+        {
+            try
+            {
+                if (request.Method != "POST")
+                {
+                    WriteJson(stream, 405, new { error = "method_not_allowed" });
+                    return;
+                }
+                var payload = request.Body.Length == 0
+                    ? new Dictionary<string, object>()
+                    : Json.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(request.Body));
+
+                if (request.Path == "/api/git-projects/create")
+                {
+                    var name = PayloadString(payload, "name").Trim();
+                    if (string.IsNullOrWhiteSpace(name)) throw new InvalidDataException("项目名称不能为空。");
+                    var folderName = SafeFileName(name);
+                    Directory.CreateDirectory(projectsRoot);
+                    var projectPath = Path.GetFullPath(Path.Combine(projectsRoot, folderName));
+                    if (!projectPath.StartsWith(Path.GetFullPath(projectsRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("项目名称包含无效字符。");
+                    Directory.CreateDirectory(projectPath);
+                    if (!Directory.Exists(Path.Combine(projectPath, ".git")))
+                    {
+                        RunGit(projectPath, "init", true);
+                        RunGit(projectPath, "config user.name \"SYE Local User\"", true);
+                        RunGit(projectPath, "config user.email \"sye@localhost\"", true);
+                        Directory.CreateDirectory(Path.Combine(projectPath, "requirements"));
+                        Directory.CreateDirectory(Path.Combine(projectPath, "metadata", "baselines"));
+                        File.WriteAllText(Path.Combine(projectPath, "project.json"), Json.Serialize(new
+                        {
+                            schema = "sye-project/v1",
+                            name = name,
+                            createdAt = DateTime.UtcNow.ToString("o")
+                        }), new UTF8Encoding(false));
+                        RunGit(projectPath, "add -A", true);
+                        RunGit(projectPath, "commit -m \"Initialize SYE requirements project\"", true);
+                    }
+                    WriteJson(stream, 200, new { created = true, name = name, path = projectPath, gitAvailable = true });
+                    return;
+                }
+
+                if (request.Path == "/api/git-projects/commit")
+                {
+                    var projectPath = ValidateProjectPath(PayloadString(payload, "projectPath"));
+                    var version = PayloadString(payload, "version").Trim();
+                    var date = PayloadString(payload, "date").Trim();
+                    var changeType = PayloadString(payload, "changeType").Trim();
+                    var author = PayloadString(payload, "author").Trim();
+                    var note = PayloadString(payload, "note").Trim();
+                    if (string.IsNullOrWhiteSpace(version)) throw new InvalidDataException("基线版本号不能为空。");
+
+                    var requirementsPath = Path.Combine(projectPath, "requirements");
+                    Directory.CreateDirectory(requirementsPath);
+                    foreach (var existing in Directory.GetFiles(requirementsPath)) File.Delete(existing);
+                    object documentsValue;
+                    var copied = 0;
+                    if (payload.TryGetValue("documents", out documentsValue))
+                    {
+                        var documents = documentsValue as IEnumerable;
+                        if (documents != null)
+                        {
+                            foreach (var value in documents)
+                            {
+                                var document = value as Dictionary<string, object>;
+                                if (document == null) continue;
+                                var sourcePath = PayloadString(document, "path");
+                                if (!File.Exists(sourcePath)) throw new FileNotFoundException("需求源文档不存在。", sourcePath);
+                                var destination = Path.Combine(requirementsPath, (copied + 1).ToString("00") + "_" + SafeFileName(Path.GetFileName(sourcePath)));
+                                File.Copy(sourcePath, destination, true);
+                                copied++;
+                            }
+                        }
+                    }
+                    if (copied == 0) throw new InvalidDataException("没有可提交到 Git 的本地需求文档。");
+
+                    var baselineId = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+                    var metadataPath = Path.Combine(projectPath, "metadata", "baselines");
+                    Directory.CreateDirectory(metadataPath);
+                    object snapshots;
+                    payload.TryGetValue("snapshots", out snapshots);
+                    File.WriteAllText(Path.Combine(metadataPath, baselineId + ".json"), Json.Serialize(new
+                    {
+                        schema = "sye-baseline/v1",
+                        version = version,
+                        date = date,
+                        changeType = changeType,
+                        author = author,
+                        note = note,
+                        fileCount = copied,
+                        snapshots = snapshots,
+                        createdAt = DateTime.UtcNow.ToString("o")
+                    }), new UTF8Encoding(false));
+                    RunGit(projectPath, "add -A", true);
+                    var message = "Baseline " + version + " | " + changeType + " | " + note;
+                    RunGit(projectPath, "commit -m " + QuoteArgument(message), true);
+                    var commitId = RunGit(projectPath, "rev-parse --short HEAD", true).Trim();
+                    var tag = "baseline-" + SafeGitRef(version);
+                    RunGit(projectPath, "tag -a " + QuoteArgument(tag) + " -m " + QuoteArgument("SYE baseline " + version), true);
+                    WriteJson(stream, 200, new { committed = true, commitId = commitId, tag = tag, projectPath = projectPath });
+                    return;
+                }
+
+                WriteJson(stream, 404, new { error = "git_project_endpoint_not_found" });
+            }
+            catch (Exception error)
+            {
+                WriteJson(stream, 400, new { error = error.Message });
+            }
+        }
+
+        private string ValidateProjectPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new InvalidDataException("请先创建或选择 Git 项目。");
+            var fullPath = Path.GetFullPath(path);
+            var root = Path.GetFullPath(projectsRoot) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(Path.Combine(fullPath, ".git")))
+                throw new InvalidDataException("项目不是由 SYE 管理的本地 Git 仓库。");
+            return fullPath;
+        }
+
+        private static string RunGit(string workingDirectory, string arguments, bool failOnError)
+        {
+            using (var process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "git.exe",
+                    Arguments = arguments,
+                    WorkingDirectory = workingDirectory,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                try { process.Start(); }
+                catch (Exception error) { throw new InvalidOperationException("未找到本机 Git，请先安装 Git for Windows。", error); }
+                var output = process.StandardOutput.ReadToEnd();
+                var errorOutput = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (failOnError && process.ExitCode != 0)
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorOutput) ? "Git 操作失败。" : errorOutput.Trim());
+                return output;
+            }
+        }
+
+        private static string SafeFileName(string value)
+        {
+            foreach (var invalid in Path.GetInvalidFileNameChars()) value = value.Replace(invalid, '_');
+            return string.IsNullOrWhiteSpace(value) ? "project" : value.Trim();
+        }
+
+        private static string SafeGitRef(string value)
+        {
+            var builder = new StringBuilder();
+            foreach (var character in value)
+                builder.Append(char.IsLetterOrDigit(character) || character == '-' || character == '_' || character == '.' ? character : '-');
+            return builder.Length == 0 ? "baseline" : builder.ToString().Trim('.', '-');
         }
 
         private void HandleLocalFilesRequest(NetworkStream stream, HttpRequest request)
