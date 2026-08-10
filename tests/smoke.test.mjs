@@ -99,20 +99,6 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /groupedQuickLinks\.map/);
 });
 
-test("requirements project context persists locally and is attached to baseline records", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
-
-  assert.match(page, /PROJECT_NAME_STORAGE_KEY/);
-  assert.match(page, /DEFAULT_REQUIREMENTS_PROJECT = "默认项目"/);
-  assert.match(page, /project: projectName\.trim\(\)/);
-  assert.match(page, /schemaVersion: 4, history, quickLinks, projectName/);
-  assert.match(page, /getDirectoryHandle\(safeName\(commit\.project\)/);
-  assert.match(page, /项目：\$\{item\.project\}/);
-  assert.match(page, /saveProjectName/);
-  assert.match(launcher, /projectName/);
-});
-
 test("Windows package embeds the generated SYE application icon", async () => {
   const script = await readFile(new URL("../launcher/build-exe.ps1", import.meta.url), "utf8");
 

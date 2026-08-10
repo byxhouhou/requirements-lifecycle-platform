@@ -5,7 +5,6 @@ import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
 import "./quick-links.css";
-import "./project-context.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -26,7 +25,6 @@ type SourceDocumentPath = {
 
 type BaselineCommit = {
   id: string;
-  project: string;
   version: string;
   date: string;
   type: string;
@@ -83,13 +81,6 @@ declare global {
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
 const QUICK_LINKS_STORAGE_KEY = "reqflow-quick-links-v1";
-const PROJECT_NAME_STORAGE_KEY = "reqflow-current-project-v1";
-const DEFAULT_REQUIREMENTS_PROJECT = "默认项目";
-
-const normalizeHistoryProjects = (history: BaselineCommit[]) => history.map(item => ({
-  ...item,
-  project: item.project?.trim() || DEFAULT_REQUIREMENTS_PROJECT,
-}));
 const DEFAULT_QUICK_LINK_PROJECT = "默认项目";
 
 const normalizeQuickLinks = (links: QuickLink[]) => links.map(link => ({
@@ -101,7 +92,7 @@ const readBrowserHistory = (): BaselineCommit[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (!saved) return [];
   try {
-    return normalizeHistoryProjects(JSON.parse(saved));
+    return JSON.parse(saved);
   } catch {
     return [];
   }
@@ -118,37 +109,34 @@ const readBrowserQuickLinks = (): QuickLink[] => {
   }
 };
 
-const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickLinks: QuickLink[]; projectName: string }> => {
+const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickLinks: QuickLink[] }> => {
   const browserHistory = readBrowserHistory();
   const browserQuickLinks = readBrowserQuickLinks();
-  const browserProjectName = localStorage.getItem(PROJECT_NAME_STORAGE_KEY)?.trim() || "";
   try {
     const response = await fetch("/api/state", {
       method: "GET",
       headers: { Accept: "application/json" },
     });
     if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
-      return { history: browserHistory, quickLinks: browserQuickLinks, projectName: browserProjectName };
+      return { history: browserHistory, quickLinks: browserQuickLinks };
     }
-    const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[]; projectName?: string };
+    const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[] };
     return {
-      history: Array.isArray(payload.history) ? normalizeHistoryProjects(payload.history) : browserHistory,
+      history: Array.isArray(payload.history) ? payload.history : browserHistory,
       quickLinks: Array.isArray(payload.quickLinks) ? normalizeQuickLinks(payload.quickLinks) : browserQuickLinks,
-      projectName: payload.projectName?.trim() || browserProjectName,
     };
   } catch {
-    return { history: browserHistory, quickLinks: browserQuickLinks, projectName: browserProjectName };
+    return { history: browserHistory, quickLinks: browserQuickLinks };
   }
 };
 
-const persistState = (history: BaselineCommit[], quickLinks: QuickLink[], projectName: string) => {
+const persistState = (history: BaselineCommit[], quickLinks: QuickLink[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
   localStorage.setItem(QUICK_LINKS_STORAGE_KEY, JSON.stringify(quickLinks));
-  localStorage.setItem(PROJECT_NAME_STORAGE_KEY, projectName);
   void fetch("/api/state", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schemaVersion: 4, history, quickLinks, projectName }),
+    body: JSON.stringify({ schemaVersion: 3, history, quickLinks }),
   }).catch(() => {
     // Development mode has no local EXE persistence API; browser storage remains available.
   });
@@ -272,7 +260,6 @@ export default function Home() {
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
   const [archiveName, setArchiveName] = useState("");
   const [history, setHistory] = useState<BaselineCommit[]>([]);
-  const [projectName, setProjectName] = useState("");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("requirements");
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   const [quickLinkScreen, setQuickLinkScreen] = useState<QuickLinkScreen>("list");
@@ -317,7 +304,6 @@ export default function Home() {
     void loadPersistedState().then(state => {
       setHistory(state.history);
       setQuickLinks(state.quickLinks);
-      setProjectName(state.projectName);
     });
   }, []);
 
@@ -416,14 +402,6 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2300);
   };
 
-  const saveProjectName = () => {
-    const normalized = projectName.trim();
-    if (!normalized) return notify("请先填写项目名称");
-    setProjectName(normalized);
-    persistState(history, quickLinks, normalized);
-    notify(`当前项目“${normalized}”已保存到本机`);
-  };
-
   const persistComparisonBindings = (bindings: Array<{ versionId: string; path: string }>) => {
     const bindingMap = new Map(bindings
       .filter(binding => binding.versionId && binding.path.trim())
@@ -434,7 +412,7 @@ export default function Home() {
       return path ? { ...item, beyondComparePath: path } : item;
     });
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks, projectName);
+    persistState(nextHistory, quickLinks);
   };
 
   const importDocuments = (event: ChangeEvent<HTMLInputElement>, mode: "folder" | "files") => {
@@ -556,7 +534,6 @@ export default function Home() {
   };
 
   const createBaseline = async () => {
-    if (!projectName.trim()) return notify("请先设置并保存项目名称");
     if (!documents.length) return notify("请先选择需求输入文件夹");
     if (!archiveHandle) return notify("请先设置归档文件夹");
     if (!version.trim()) return notify("请填写基线版本号");
@@ -576,7 +553,6 @@ export default function Home() {
         }));
       const commit: BaselineCommit = {
         id: commitId,
-        project: projectName.trim(),
         version: version.trim(),
         date: commitDate,
         type: changeType,
@@ -588,8 +564,7 @@ export default function Home() {
         snapshots,
         sourcePaths,
       };
-      const baselineRoot = await archiveHandle.getDirectoryHandle("系统需求基线", { create: true });
-      const projectFolder = await baselineRoot.getDirectoryHandle(safeName(commit.project), { create: true });
+      const projectFolder = await archiveHandle.getDirectoryHandle("系统需求基线", { create: true });
       const versionFolder = await projectFolder.getDirectoryHandle(safeName(`${commitDate}_${version}_${commitId}`), { create: true });
       const filesFolder = await versionFolder.getDirectoryHandle("source-documents", { create: true });
 
@@ -615,7 +590,6 @@ export default function Home() {
       const baseline = [
         `# 系统需求基线 ${commit.version}`,
         "",
-        `- 项目名称：${commit.project}`,
         `- 提交编号：${commit.id}`,
         `- 基线日期：${commit.date}`,
         `- 变更类型：${commit.type}`,
@@ -637,13 +611,13 @@ export default function Home() {
       const changelog = [
         "# 系统需求基线变更记录",
         "",
-        ...nextHistory.filter(item => item.project === commit.project).map(item =>
-          `## ${item.version} · ${item.id}\n\n- 项目：${item.project}\n- 日期：${item.date}\n- 类型：${item.type}\n- 提交人：${item.author}\n- 文档：${item.fileCount} 份\n- 备注：${item.note}\n`
+        ...nextHistory.map(item =>
+          `## ${item.version} · ${item.id}\n\n- 日期：${item.date}\n- 类型：${item.type}\n- 提交人：${item.author}\n- 文档：${item.fileCount} 份\n- 备注：${item.note}\n`
         ),
       ].join("\n");
       await writeFile(projectFolder, "CHANGELOG.md", changelog);
       setHistory(nextHistory);
-      persistState(nextHistory, quickLinks, projectName);
+      persistState(nextHistory, quickLinks);
       setNote("");
       notify(`${commit.version} 已建立并写入归档文件夹`);
     } catch (error) {
@@ -759,7 +733,7 @@ export default function Home() {
     if (!deleteTarget) return;
     const nextHistory = history.filter(item => item.id !== deleteTarget.id);
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks, projectName);
+    persistState(nextHistory, quickLinks);
     if (baseVersionId === deleteTarget.id) setBaseVersionId("");
     if (targetVersionId === deleteTarget.id) setTargetVersionId("");
     if (baseVersionId === deleteTarget.id || targetVersionId === deleteTarget.id) {
@@ -800,7 +774,7 @@ export default function Home() {
       ? { ...item, type: editType, note: editNote.trim() }
       : item);
     setHistory(nextHistory);
-    persistState(nextHistory, quickLinks, projectName);
+    persistState(nextHistory, quickLinks);
     const changedVersion = editTarget.version;
     closeRecordEditor();
     notify(`${changedVersion} 的归档信息已更新`);
@@ -808,7 +782,7 @@ export default function Home() {
 
   const saveQuickLinks = (nextLinks: QuickLink[]) => {
     setQuickLinks(nextLinks);
-    persistState(history, nextLinks, projectName);
+    persistState(history, nextLinks);
   };
 
   const addQuickLink = () => {
@@ -912,26 +886,6 @@ export default function Home() {
             </button>
           </div>
         </header>
-
-        <section className={`project-context ${workspaceView !== "requirements" ? "view-hidden" : ""}`} aria-label="当前需求项目">
-          <div className="project-context-mark">P</div>
-          <div className="project-context-copy">
-            <span>当前需求项目</span>
-            <strong>{projectName.trim() || "尚未设置项目"}</strong>
-            <small>项目名称和基线记录保存在本机，重新打开后自动恢复</small>
-          </div>
-          <label>
-            <span>项目名称</span>
-            <input
-              value={projectName}
-              onChange={event => setProjectName(event.target.value)}
-              onKeyDown={event => { if (event.key === "Enter") saveProjectName(); }}
-              placeholder="例如：Nova 系统平台"
-              maxLength={80}
-            />
-          </label>
-          <button className="project-save" onClick={saveProjectName}>保存项目</button>
-        </section>
 
         <section className={`flow-strip ${workspaceView !== "requirements" ? "view-hidden" : ""}`} aria-label="基线建立流程">
           <div className={`flow-step ${documents.length ? "complete" : "current"}`}>
@@ -1515,7 +1469,7 @@ export default function Home() {
                           <button className="delete-record" onClick={() => setDeleteTarget(item)} aria-label={`删除 ${item.version} 记录`}>删除</button>
                         </div>
                         <p>{item.note}</p>
-                        <small>项目：{item.project} · {item.date} · {item.author} · {item.fileCount} 份文档 · 归档至 {item.archive}</small>
+                        <small>{item.date} · {item.author} · {item.fileCount} 份文档 · 归档至 {item.archive}</small>
                       </div>
                     </article>
                   ))}
