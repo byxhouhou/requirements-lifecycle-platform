@@ -97,6 +97,7 @@ namespace ReqFlowLauncher
         private readonly TcpListener listener;
         private readonly CancellationTokenSource cancellation = new CancellationTokenSource();
         private readonly NotifyIcon trayIcon;
+        private readonly Icon appIcon;
         private readonly Dictionary<string, string> localFileTokens = new Dictionary<string, string>();
         private readonly object localFileTokenLock = new object();
 
@@ -114,37 +115,32 @@ namespace ReqFlowLauncher
             Task.Run((Func<Task>)ListenLoop);
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add("打开 ReqFlow", null, delegate { Program.OpenBrowser(); });
-            menu.Items.Add("检查更新", null, delegate { LaunchEmbeddedUpdater(); });
+            menu.Items.Add("打开 SYE", null, delegate { Program.OpenBrowser(); });
+            menu.Items.Add("检查更新", null, delegate { LaunchUpdater(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { ExitThread(); });
 
+            appIcon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
             trayIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
-                Text = "ReqFlow - 本地需求管理",
+                Icon = appIcon ?? SystemIcons.Application,
+                Text = "SYE - 本地需求管理",
                 ContextMenuStrip = menu,
                 Visible = true
             };
             trayIcon.DoubleClick += delegate { Program.OpenBrowser(); };
-            trayIcon.ShowBalloonTip(1500, "ReqFlow 已启动", "数据保存在本机，双击托盘图标可重新打开。", ToolTipIcon.Info);
+            trayIcon.ShowBalloonTip(1500, "SYE 已启动", "数据保存在本机，双击托盘图标可重新打开。", ToolTipIcon.Info);
 
             if (!Program.SuppressBrowser) Program.OpenBrowser();
         }
 
-        private void LaunchEmbeddedUpdater()
+        private void LaunchUpdater()
         {
             try
             {
-                var updaterDirectory = Path.Combine(Path.GetTempPath(), "SYE-Updater");
-                Directory.CreateDirectory(updaterDirectory);
+                var updaterDirectory = AppDomain.CurrentDomain.BaseDirectory;
                 var updaterPath = Path.Combine(updaterDirectory, "SYEUpdater.exe");
-                using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("SYE.Updater.exe"))
-                {
-                    if (resource == null) throw new InvalidOperationException("未找到内置更新组件。");
-                    using (var output = new FileStream(updaterPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                        resource.CopyTo(output);
-                }
+                if (!File.Exists(updaterPath)) throw new FileNotFoundException("请将 SYEUpdater.exe 与 SYE.exe 放在同一个文件夹。", updaterPath);
                 var currentExecutable = Assembly.GetExecutingAssembly().Location;
                 Process.Start(new ProcessStartInfo(updaterPath, "\"" + currentExecutable + "\"")
                 {
@@ -822,6 +818,7 @@ namespace ReqFlowLauncher
             listener.Stop();
             trayIcon.Visible = false;
             trayIcon.Dispose();
+            if (appIcon != null) appIcon.Dispose();
             base.ExitThreadCore();
         }
 

@@ -134,13 +134,13 @@ http://localhost:3000/
 npm run build
 ```
 
-### Windows 单文件版
+### Windows 本地版
 
-仓库仅提供 `release/SYE.exe`，使用绿色 SYE 图标。双击后会：
+仓库提供 `release/SYE.exe` 和独立更新器 `release/SYEUpdater.exe`。两个 EXE 均使用绿色 SYE 图标。双击 `SYE.exe` 后会：
 
 1. 在 `127.0.0.1:37651` 启动仅限本机访问的服务。
 2. 自动打开默认浏览器。
-3. 在系统托盘保留 ReqFlow 图标。
+3. 在系统托盘保留绿色 SYE 图标。
 4. 右键托盘图标并选择“退出”，即可关闭本地服务。
 
 该 EXE 不需要安装 Node.js，也不会连接外部服务。应用状态保存在：
@@ -160,7 +160,7 @@ npm run package:windows
 
 ### 从仓库更新
 
-右键单击系统托盘中的 SYE 图标，选择“检查更新”。内置更新器会在用户确认后从仓库下载新版 `release/SYE.exe`、验证程序、替换当前版本并重新启动。更新组件临时释放到系统临时目录，发布目录仍然只有 `SYE.exe`。
+将 `SYE.exe` 与 `SYEUpdater.exe` 放在同一个可写文件夹。需要更新时可以直接双击 `SYEUpdater.exe`，也可以右键单击系统托盘中的绿色 SYE 图标并选择“检查更新”。独立更新器会在用户确认后从仓库下载新版 `release/SYE.exe`、验证程序、替换当前版本并重新启动。
 
 程序不会在后台主动联网，只有用户点击“检查更新”并确认后才访问 GitHub。公司网络禁止外部连接时，也可以通过内部共享盘手动替换 `SYE.exe`。
 
@@ -229,7 +229,8 @@ reqflow/
 ├── public/               # 静态资源
 ├── tests/                # 自动化检查
 ├── launcher/                       # Windows 本地启动器源码
-├── release/SYE.exe                 # 唯一的 Windows 单文件版本
+├── release/SYE.exe                 # Windows 主程序
+├── release/SYEUpdater.exe          # 独立自动更新器
 ├── 测试需求文档/          # 本地测试用需求版本
 ├── index.html            # 本地应用入口与安全策略
 ├── package.json
@@ -262,7 +263,7 @@ modules/
 - 删除界面记录不会删除已经归档的源文件。
 - 浏览器内容安全策略禁止访问非本机网络地址。
 - 开发与预览服务只监听 `127.0.0.1`，不会暴露到局域网。
-- `SYE.exe` 不会在后台主动访问 GitHub；只有用户确认执行内置更新时才连接仓库。
+- `SYE.exe` 不会在后台主动访问 GitHub；只有用户确认启动独立更新器时才连接仓库。
 - Beyond Compare 集成只在用户主动点击后调用本机已安装的 `BCompare.exe`。
 
 ## 当前限制
@@ -282,7 +283,7 @@ npm run dev       # 启动本地开发服务
 npm run build     # 执行生产构建检查
 npm test          # 运行测试
 npm run preview   # 本机预览生产构建
-npm run package:windows  # 生成内含更新能力的单文件 SYE.exe
+npm run package:windows  # 生成 SYE.exe 和独立的 SYEUpdater.exe
 ```
 
 ## 建议的仓库信息

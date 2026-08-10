@@ -11,7 +11,7 @@ $compiler = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $source = Join-Path $PSScriptRoot "ReqFlowLauncher.cs"
 $output = Join-Path $releaseDir "SYE.exe"
 $updaterSource = Join-Path $PSScriptRoot "ReqFlowUpdater.cs"
-$updaterOutput = Join-Path $workingDir "SYEUpdater.exe"
+$updaterOutput = Join-Path $releaseDir "SYEUpdater.exe"
 $assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
 $iconOutput = Join-Path $workingDir "SYE.ico"
 $iconPreview = Join-Path $workingDir "SYE-icon.png"
@@ -125,6 +125,7 @@ $fileVersion = ($versionParts[0..3] -join ".")
     /target:winexe `
     /platform:x64 `
     /optimize+ `
+    /win32icon:$iconOutput `
     /out:$updaterOutput `
     /reference:System.dll `
     /reference:System.Core.dll `
@@ -154,7 +155,6 @@ using System.Reflection;
     /win32icon:$iconOutput `
     /out:$output `
     /resource:"$webArchive,ReqFlow.Web.zip" `
-    /resource:"$updaterOutput,SYE.Updater.exe" `
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
@@ -172,3 +172,4 @@ if ($LASTEXITCODE -ne 0) {
 $hash = (Get-FileHash -Algorithm SHA256 $output).Hash
 Write-Output "Created: $output"
 Write-Output "SHA256: $hash"
+Write-Output "Created: $updaterOutput"

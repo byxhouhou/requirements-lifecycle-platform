@@ -21,13 +21,15 @@ namespace SYEUpdater
         private static void Main(string[] args)
         {
             Application.EnableVisualStyles();
-            if (args.Length != 1 || !File.Exists(args[0]))
+            var targetPath = args.Length == 1
+                ? Path.GetFullPath(args[0])
+                : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SYE.exe");
+            if (!File.Exists(targetPath))
             {
-                MessageBox.Show("未找到需要更新的 SYE.exe。", "SYE 更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("未找到需要更新的 SYE.exe。请将 SYEUpdater.exe 与 SYE.exe 放在同一个文件夹。",
+                    "SYE 更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-
-            var targetPath = Path.GetFullPath(args[0]);
             if (MessageBox.Show(
                 "将从 GitHub 仓库下载最新版 SYE.exe。\n\n仅本次更新会访问外部网络，本地归档记录不会被覆盖。\n\n是否继续？",
                 "SYE 自动更新",

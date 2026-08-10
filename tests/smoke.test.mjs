@@ -16,15 +16,17 @@ test("Windows release provides a cache-safe SYE executable entry", async () => {
   assert.equal(executable.subarray(0, 2).toString("ascii"), "MZ");
 });
 
-test("SYE embeds the user-triggered updater without extra release files", async () => {
+test("SYE uses the separate user-triggered updater", async () => {
   const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
   const updater = await readFile(new URL("../launcher/ReqFlowUpdater.cs", import.meta.url), "utf8");
   const script = await readFile(new URL("../launcher/build-exe.ps1", import.meta.url), "utf8");
 
-  assert.match(launcher, /LaunchEmbeddedUpdater/);
+  assert.match(launcher, /LaunchUpdater/);
   assert.match(launcher, /检查更新/);
+  assert.match(launcher, /SYEUpdater\.exe/);
+  assert.match(launcher, /Icon\.ExtractAssociatedIcon/);
   assert.match(updater, /release\/SYE\.exe/);
-  assert.match(script, /SYE\.Updater\.exe/);
+  assert.match(script, /\$updaterOutput = Join-Path \$releaseDir "SYEUpdater\.exe"/);
 });
 
 test("Windows launcher exposes explicit local file and Beyond Compare integration routes", async () => {
