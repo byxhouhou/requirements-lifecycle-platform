@@ -115,6 +115,7 @@ namespace ReqFlowLauncher
 
             var menu = new ContextMenuStrip();
             menu.Items.Add("打开 ReqFlow", null, delegate { Program.OpenBrowser(); });
+            menu.Items.Add("检查更新", null, delegate { LaunchEmbeddedUpdater(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { ExitThread(); });
 
@@ -129,6 +130,33 @@ namespace ReqFlowLauncher
             trayIcon.ShowBalloonTip(1500, "ReqFlow 已启动", "数据保存在本机，双击托盘图标可重新打开。", ToolTipIcon.Info);
 
             if (!Program.SuppressBrowser) Program.OpenBrowser();
+        }
+
+        private void LaunchEmbeddedUpdater()
+        {
+            try
+            {
+                var updaterDirectory = Path.Combine(Path.GetTempPath(), "SYE-Updater");
+                Directory.CreateDirectory(updaterDirectory);
+                var updaterPath = Path.Combine(updaterDirectory, "SYEUpdater.exe");
+                using (var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("SYE.Updater.exe"))
+                {
+                    if (resource == null) throw new InvalidOperationException("未找到内置更新组件。");
+                    using (var output = new FileStream(updaterPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        resource.CopyTo(output);
+                }
+                var currentExecutable = Assembly.GetExecutingAssembly().Location;
+                Process.Start(new ProcessStartInfo(updaterPath, "\"" + currentExecutable + "\"")
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = updaterDirectory
+                });
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show("无法启动内置更新器。\n\n" + error.Message, "SYE 更新",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void ExtractWebApplication()

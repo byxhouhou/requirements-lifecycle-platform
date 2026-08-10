@@ -10,6 +10,8 @@ $webArchive = Join-Path $workingDir "ReqFlow.Web.zip"
 $compiler = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $source = Join-Path $PSScriptRoot "ReqFlowLauncher.cs"
 $output = Join-Path $releaseDir "SYE.exe"
+$updaterSource = Join-Path $PSScriptRoot "ReqFlowUpdater.cs"
+$updaterOutput = Join-Path $workingDir "SYEUpdater.exe"
 $assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
 $iconOutput = Join-Path $workingDir "SYE.ico"
 $iconPreview = Join-Path $workingDir "SYE-icon.png"
@@ -118,6 +120,21 @@ $versionParts = @($package.version.Split("-")[0].Split("."))
 while ($versionParts.Count -lt 4) { $versionParts += "0" }
 $fileVersion = ($versionParts[0..3] -join ".")
 
+& $compiler `
+    /nologo `
+    /target:winexe `
+    /platform:x64 `
+    /optimize+ `
+    /out:$updaterOutput `
+    /reference:System.dll `
+    /reference:System.Core.dll `
+    /reference:System.Windows.Forms.dll `
+    $updaterSource
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Embedded SYE updater compilation failed."
+}
+
 @"
 using System.Reflection;
 [assembly: AssemblyTitle("ReqFlow")]
@@ -137,6 +154,7 @@ using System.Reflection;
     /win32icon:$iconOutput `
     /out:$output `
     /resource:"$webArchive,ReqFlow.Web.zip" `
+    /resource:"$updaterOutput,SYE.Updater.exe" `
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `

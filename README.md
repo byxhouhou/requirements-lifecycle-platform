@@ -160,7 +160,9 @@ npm run package:windows
 
 ### 从仓库更新
 
-从仓库下载新版 `release/SYE.exe`，关闭旧版本后直接替换本地文件即可。程序本身不会主动连接 GitHub；公司网络禁止外部连接时，也可以通过内部共享盘分发 `SYE.exe`。
+右键单击系统托盘中的 SYE 图标，选择“检查更新”。内置更新器会在用户确认后从仓库下载新版 `release/SYE.exe`、验证程序、替换当前版本并重新启动。更新组件临时释放到系统临时目录，发布目录仍然只有 `SYE.exe`。
+
+程序不会在后台主动联网，只有用户点击“检查更新”并确认后才访问 GitHub。公司网络禁止外部连接时，也可以通过内部共享盘手动替换 `SYE.exe`。
 
 本机数据位于 `%LOCALAPPDATA%\ReqFlow\data\state.json`，不在 EXE 所在目录中，因此更新和替换程序不会覆盖文档归档记录。源文档仍保存在用户选择的归档文件夹中。
 
@@ -260,7 +262,7 @@ modules/
 - 删除界面记录不会删除已经归档的源文件。
 - 浏览器内容安全策略禁止访问非本机网络地址。
 - 开发与预览服务只监听 `127.0.0.1`，不会暴露到局域网。
-- `SYE.exe` 不会主动访问 GitHub 或其他外部服务。
+- `SYE.exe` 不会在后台主动访问 GitHub；只有用户确认执行内置更新时才连接仓库。
 - Beyond Compare 集成只在用户主动点击后调用本机已安装的 `BCompare.exe`。
 
 ## 当前限制
@@ -280,7 +282,7 @@ npm run dev       # 启动本地开发服务
 npm run build     # 执行生产构建检查
 npm test          # 运行测试
 npm run preview   # 本机预览生产构建
-npm run package:windows  # 生成主程序、校验文件和独立更新器
+npm run package:windows  # 生成内含更新能力的单文件 SYE.exe
 ```
 
 ## 建议的仓库信息
