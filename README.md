@@ -136,7 +136,7 @@ npm run build
 
 ### Windows 单文件版
 
-仓库提供 `release/SYE.exe`（推荐入口，使用绿色 SYE 图标）和兼容入口 `release/ReqFlow.exe`。双击后会：
+仓库仅提供 `release/SYE.exe`，使用绿色 SYE 图标。双击后会：
 
 1. 在 `127.0.0.1:37651` 启动仅限本机访问的服务。
 2. 自动打开默认浏览器。
@@ -160,22 +160,7 @@ npm run package:windows
 
 ### 从仓库更新
 
-将以下两个文件放在同一个可写文件夹：
-
-```text
-ReqFlow.exe
-ReqFlowUpdater.exe
-```
-
-需要更新时双击 `ReqFlowUpdater.exe` 并确认。更新器会：
-
-1. 从当前仓库 `main` 分支下载 `release/ReqFlow.exe` 和 SHA-256 校验文件。
-2. 校验下载内容是否为有效的 ReqFlow 主程序。
-3. 关闭同目录中正在运行的 ReqFlow。
-4. 将旧版备份为 `ReqFlow.previous.exe`。
-5. 替换主程序并自动重新启动。
-
-更新器只在用户主动运行并确认后访问 GitHub，`ReqFlow.exe` 本身仍不连接外部服务。若公司网络禁止访问 GitHub，更新器会终止操作并保留原程序；也可以通过内部共享盘手动复制新版 `ReqFlow.exe`。
+从仓库下载新版 `release/SYE.exe`，关闭旧版本后直接替换本地文件即可。程序本身不会主动连接 GitHub；公司网络禁止外部连接时，也可以通过内部共享盘分发 `SYE.exe`。
 
 本机数据位于 `%LOCALAPPDATA%\ReqFlow\data\state.json`，不在 EXE 所在目录中，因此更新和替换程序不会覆盖文档归档记录。源文档仍保存在用户选择的归档文件夹中。
 
@@ -184,13 +169,13 @@ ReqFlowUpdater.exe
 在“版本对比”中选择“Beyond Compare”：
 
 1. 系统会从 Windows 注册表和常见安装目录检测 `BCompare.exe`。
-2. 使用 `ReqFlow.exe` 导入文档并提交归档时，系统会在本机记录原始文档的绝对路径。
+2. 使用 `SYE.exe` 导入文档并提交归档时，系统会在本机记录原始文档的绝对路径。
 3. 选择基准版本和修改版本后，系统自动填入两个版本当时导入的文档路径。
 4. 点击“打开 Beyond Compare”后直接调用本机软件进行比较。
 
 若系统未检测到 Beyond Compare，页面才会显示程序路径设置入口。升级前建立的历史记录没有原始绝对路径，需要首次手动选择文档；选择结果会保存在当前电脑，后续可自动带入。
 
-该功能仅由 `ReqFlow.exe` 的回环本地接口执行。浏览器无法读取绝对路径，因此普通开发模式仍使用浏览器选择器；打包版使用 Windows 原生文件/文件夹选择器读取本机路径。文档路径不会上传、不会写入归档清单；启动器会验证程序和两个文档均真实存在。
+该功能仅由 `SYE.exe` 的回环本地接口执行。浏览器无法读取绝对路径，因此普通开发模式仍使用浏览器选择器；打包版使用 Windows 原生文件/文件夹选择器读取本机路径。文档路径不会上传、不会写入归档清单；启动器会验证程序和两个文档均真实存在。
 
 ## 当前使用流程
 
@@ -241,10 +226,8 @@ reqflow/
 ├── app/                  # 页面、交互逻辑与样式
 ├── public/               # 静态资源
 ├── tests/                # 自动化检查
-├── launcher/                       # Windows 本地启动器和更新器源码
-├── release/ReqFlow.exe             # Windows 单文件版本
-├── release/ReqFlow.exe.sha256      # 主程序完整性校验值
-├── release/ReqFlowUpdater.exe      # 仓库更新器
+├── launcher/                       # Windows 本地启动器源码
+├── release/SYE.exe                 # 唯一的 Windows 单文件版本
 ├── 测试需求文档/          # 本地测试用需求版本
 ├── index.html            # 本地应用入口与安全策略
 ├── package.json
@@ -277,7 +260,7 @@ modules/
 - 删除界面记录不会删除已经归档的源文件。
 - 浏览器内容安全策略禁止访问非本机网络地址。
 - 开发与预览服务只监听 `127.0.0.1`，不会暴露到局域网。
-- 只有独立的 `ReqFlowUpdater.exe` 会在用户主动确认后访问 GitHub。
+- `SYE.exe` 不会主动访问 GitHub 或其他外部服务。
 - Beyond Compare 集成只在用户主动点击后调用本机已安装的 `BCompare.exe`。
 
 ## 当前限制
