@@ -53,21 +53,64 @@ New-Item -ItemType Directory -Path $workingDir -Force | Out-Null
 
 Add-Type -AssemblyName System.Drawing
 $sourceIconImage = [System.Drawing.Image]::FromFile($iconSource)
-$iconBitmap = New-Object System.Drawing.Bitmap 256, 256
-$iconGraphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
+$iconSizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
+$iconFrames = @()
 try {
-    $iconGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $iconGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $iconGraphics.DrawImage($sourceIconImage, 0, 0, 256, 256)
-    $iconBitmap.Save($iconPreview, [System.Drawing.Imaging.ImageFormat]::Png)
-    $iconHandle = $iconBitmap.GetHicon()
-    $icon = [System.Drawing.Icon]::FromHandle($iconHandle)
+    foreach ($iconSize in $iconSizes) {
+        $frameBitmap = New-Object System.Drawing.Bitmap $iconSize, $iconSize
+        $frameGraphics = [System.Drawing.Graphics]::FromImage($frameBitmap)
+        try {
+            $frameGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $frameGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $frameGraphics.DrawImage($sourceIconImage, 0, 0, $iconSize, $iconSize)
+            if ($iconSize -eq 256) {
+                $frameBitmap.Save($iconPreview, [System.Drawing.Imaging.ImageFormat]::Png)
+            }
+            $frameStream = New-Object System.IO.MemoryStream
+            try {
+                $frameBitmap.Save($frameStream, [System.Drawing.Imaging.ImageFormat]::Png)
+                $iconFrames += ,$frameStream.ToArray()
+            }
+            finally {
+                $frameStream.Dispose()
+            }
+        }
+        finally {
+            $frameGraphics.Dispose()
+            $frameBitmap.Dispose()
+        }
+    }
+
     $iconStream = [System.IO.File]::Create($iconOutput)
-    try { $icon.Save($iconStream) } finally { $iconStream.Dispose(); $icon.Dispose() }
+    $iconWriter = New-Object System.IO.BinaryWriter $iconStream
+    try {
+        $iconWriter.Write([uint16]0)
+        $iconWriter.Write([uint16]1)
+        $iconWriter.Write([uint16]$iconSizes.Count)
+        $frameOffset = 6 + (16 * $iconSizes.Count)
+        for ($index = 0; $index -lt $iconSizes.Count; $index++) {
+            $iconSize = $iconSizes[$index]
+            $dimension = if ($iconSize -eq 256) { 0 } else { $iconSize }
+            $iconWriter.Write([byte]$dimension)
+            $iconWriter.Write([byte]$dimension)
+            $iconWriter.Write([byte]0)
+            $iconWriter.Write([byte]0)
+            $iconWriter.Write([uint16]1)
+            $iconWriter.Write([uint16]32)
+            $iconWriter.Write([uint32]$iconFrames[$index].Length)
+            $iconWriter.Write([uint32]$frameOffset)
+            $frameOffset += $iconFrames[$index].Length
+        }
+        foreach ($frame in $iconFrames) {
+            $iconWriter.Write($frame)
+        }
+    }
+    finally {
+        $iconWriter.Dispose()
+        $iconStream.Dispose()
+    }
 }
 finally {
-    $iconGraphics.Dispose()
-    $iconBitmap.Dispose()
     $sourceIconImage.Dispose()
 }
 

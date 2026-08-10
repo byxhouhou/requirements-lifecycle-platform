@@ -852,7 +852,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <aside className="rail">
-        <div className="brand-mark">SYE</div>
+        <div className="brand-mark">R</div>
         <button
           className={`rail-btn ${workspaceView === "requirements" ? "active" : ""}`}
           aria-label="需求输入"
