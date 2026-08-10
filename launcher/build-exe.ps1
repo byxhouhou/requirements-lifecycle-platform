@@ -14,6 +14,8 @@ $updaterSource = Join-Path $PSScriptRoot "ReqFlowUpdater.cs"
 $updaterOutput = Join-Path $releaseDir "ReqFlowUpdater.exe"
 $assemblyInfo = Join-Path $workingDir "ReqFlowAssemblyInfo.cs"
 $hashOutput = Join-Path $releaseDir "ReqFlow.exe.sha256"
+$iconOutput = Join-Path $releaseDir "SYE.ico"
+$iconPreview = Join-Path $releaseDir "SYE-icon.png"
 
 if (-not (Test-Path $compiler)) {
     throw "Windows C# compiler was not found: $compiler"
@@ -45,6 +47,36 @@ if (Test-Path $workingDir) {
 }
 New-Item -ItemType Directory -Path $workingDir -Force | Out-Null
 
+Add-Type -AssemblyName System.Drawing
+$iconBitmap = New-Object System.Drawing.Bitmap 256, 256
+$iconGraphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
+try {
+    $iconGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $iconGraphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $iconGraphics.Clear([System.Drawing.Color]::FromArgb(93, 68, 213))
+    $highlightBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(130, 108, 255))
+    $iconGraphics.FillEllipse($highlightBrush, -70, -95, 300, 230)
+    $highlightBrush.Dispose()
+    $font = New-Object System.Drawing.Font "Segoe UI", 70, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    $textBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
+    $format = New-Object System.Drawing.StringFormat
+    $format.Alignment = [System.Drawing.StringAlignment]::Center
+    $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+    $iconGraphics.DrawString("SYE", $font, $textBrush, (New-Object System.Drawing.RectangleF 0, 0, 256, 250), $format)
+    $font.Dispose()
+    $textBrush.Dispose()
+    $format.Dispose()
+    $iconBitmap.Save($iconPreview, [System.Drawing.Imaging.ImageFormat]::Png)
+    $iconHandle = $iconBitmap.GetHicon()
+    $icon = [System.Drawing.Icon]::FromHandle($iconHandle)
+    $iconStream = [System.IO.File]::Create($iconOutput)
+    try { $icon.Save($iconStream) } finally { $iconStream.Dispose(); $icon.Dispose() }
+}
+finally {
+    $iconGraphics.Dispose()
+    $iconBitmap.Dispose()
+}
+
 Compress-Archive -Path (Join-Path $projectRoot "dist\*") -DestinationPath $webArchive -CompressionLevel Optimal
 
 $package = Get-Content -Raw -Encoding UTF8 (Join-Path $projectRoot "package.json") | ConvertFrom-Json
@@ -68,6 +100,7 @@ using System.Reflection;
     /target:winexe `
     /platform:x64 `
     /optimize+ `
+    /win32icon:$iconOutput `
     /out:$output `
     /resource:"$webArchive,ReqFlow.Web.zip" `
     /reference:System.dll `

@@ -60,7 +60,10 @@ type QuickLink = {
   id: string;
   name: string;
   url: string;
+  project: string;
 };
+
+type QuickLinkScreen = "list" | "edit";
 
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
 type FileHandle = { createWritable: () => Promise<WritableFile> };
@@ -78,6 +81,12 @@ declare global {
 
 const STORAGE_KEY = "reqflow-baseline-history-v1";
 const QUICK_LINKS_STORAGE_KEY = "reqflow-quick-links-v1";
+const DEFAULT_QUICK_LINK_PROJECT = "默认项目";
+
+const normalizeQuickLinks = (links: QuickLink[]) => links.map(link => ({
+  ...link,
+  project: link.project?.trim() || DEFAULT_QUICK_LINK_PROJECT,
+}));
 
 const readBrowserHistory = (): BaselineCommit[] => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -94,7 +103,7 @@ const readBrowserQuickLinks = (): QuickLink[] => {
   if (!saved) return [];
   try {
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? normalizeQuickLinks(parsed) : [];
   } catch {
     return [];
   }
@@ -114,7 +123,7 @@ const loadPersistedState = async (): Promise<{ history: BaselineCommit[]; quickL
     const payload = await response.json() as { history?: BaselineCommit[]; quickLinks?: QuickLink[] };
     return {
       history: Array.isArray(payload.history) ? payload.history : browserHistory,
-      quickLinks: Array.isArray(payload.quickLinks) ? payload.quickLinks : browserQuickLinks,
+      quickLinks: Array.isArray(payload.quickLinks) ? normalizeQuickLinks(payload.quickLinks) : browserQuickLinks,
     };
   } catch {
     return { history: browserHistory, quickLinks: browserQuickLinks };
@@ -127,7 +136,7 @@ const persistState = (history: BaselineCommit[], quickLinks: QuickLink[]) => {
   void fetch("/api/state", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schemaVersion: 2, history, quickLinks }),
+    body: JSON.stringify({ schemaVersion: 3, history, quickLinks }),
   }).catch(() => {
     // Development mode has no local EXE persistence API; browser storage remains available.
   });
@@ -156,12 +165,15 @@ const parseQuickLinkConfig = (content: string): QuickLink[] => {
     if (!trimmed || trimmed.startsWith("#")) return [];
     const delimiter = ["\t", ",", "，", ";"].find(item => trimmed.includes(item));
     if (!delimiter) return [];
-    const separatorIndex = trimmed.indexOf(delimiter);
-    const name = unquote(trimmed.slice(0, separatorIndex));
-    const rawUrl = unquote(trimmed.slice(separatorIndex + delimiter.length));
-    if (index === 0 && /^(按钮名称|名称|name)$/i.test(name) && /^(链接地址|链接|url|address)$/i.test(rawUrl)) return [];
+    const fields = trimmed.split(delimiter).map(unquote);
+    const hasProject = fields.length >= 3;
+    const project = hasProject ? fields[0] : DEFAULT_QUICK_LINK_PROJECT;
+    const name = hasProject ? fields[1] : fields[0];
+    const rawUrl = hasProject ? fields.slice(2).join(delimiter) : fields.slice(1).join(delimiter);
+    if (index === 0 && /^(项目名称|项目|project)$/i.test(project) && /^(按钮名称|名称|name)$/i.test(name)) return [];
+    if (index === 0 && !hasProject && /^(按钮名称|名称|name)$/i.test(name) && /^(链接地址|链接|url|address)$/i.test(rawUrl)) return [];
     const url = normalizeQuickLink(rawUrl);
-    return name && url ? [{ id: crypto.randomUUID(), name, url }] : [];
+    return name && url ? [{ id: crypto.randomUUID(), project: project || DEFAULT_QUICK_LINK_PROJECT, name, url }] : [];
   });
 };
 
@@ -250,8 +262,14 @@ export default function Home() {
   const [history, setHistory] = useState<BaselineCommit[]>([]);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("requirements");
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
+  const [quickLinkScreen, setQuickLinkScreen] = useState<QuickLinkScreen>("list");
+  const [quickLinkProject, setQuickLinkProject] = useState(DEFAULT_QUICK_LINK_PROJECT);
   const [quickLinkName, setQuickLinkName] = useState("");
   const [quickLinkUrl, setQuickLinkUrl] = useState("");
+  const [editingQuickLinkId, setEditingQuickLinkId] = useState("");
+  const [editingQuickLinkProject, setEditingQuickLinkProject] = useState("");
+  const [editingQuickLinkName, setEditingQuickLinkName] = useState("");
+  const [editingQuickLinkUrl, setEditingQuickLinkUrl] = useState("");
   const [version, setVersion] = useState(`BL-${today().replaceAll("-", ".")}-r1`);
   const [commitDate, setCommitDate] = useState(today());
   const [changeType, setChangeType] = useState("建立基线");
@@ -323,6 +341,14 @@ export default function Home() {
   }, [comparisonMethod, beyondStatus]);
 
   const totalSize = useMemo(() => documents.reduce((sum, doc) => sum + doc.size, 0), [documents]);
+  const groupedQuickLinks = useMemo(() => {
+    const groups = new Map<string, QuickLink[]>();
+    quickLinks.forEach(link => {
+      const project = link.project?.trim() || DEFAULT_QUICK_LINK_PROJECT;
+      groups.set(project, [...(groups.get(project) ?? []), link]);
+    });
+    return Array.from(groups.entries()).map(([project, links]) => ({ project, links }));
+  }, [quickLinks]);
   const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
   const selectedBaseVersion = useMemo(
     () => history.find(item => item.id === baseVersionId),
@@ -760,14 +786,44 @@ export default function Home() {
   };
 
   const addQuickLink = () => {
+    const project = quickLinkProject.trim() || DEFAULT_QUICK_LINK_PROJECT;
     const name = quickLinkName.trim();
     const url = normalizeQuickLink(quickLinkUrl);
     if (!name) return notify("请填写按钮名称");
     if (!url) return notify("请输入有效的 HTTP 或 HTTPS 链接");
-    saveQuickLinks([...quickLinks, { id: crypto.randomUUID(), name, url }]);
+    saveQuickLinks([...quickLinks, { id: crypto.randomUUID(), project, name, url }]);
     setQuickLinkName("");
     setQuickLinkUrl("");
-    notify(`快捷按钮“${name}”已添加`);
+    notify(`“${project}”项目已添加快捷按钮“${name}”`);
+  };
+
+  const openQuickLinkEditor = (link: QuickLink) => {
+    setEditingQuickLinkId(link.id);
+    setEditingQuickLinkProject(link.project || DEFAULT_QUICK_LINK_PROJECT);
+    setEditingQuickLinkName(link.name);
+    setEditingQuickLinkUrl(link.url);
+    setQuickLinkScreen("edit");
+  };
+
+  const closeQuickLinkEditor = () => {
+    setEditingQuickLinkId("");
+    setEditingQuickLinkProject("");
+    setEditingQuickLinkName("");
+    setEditingQuickLinkUrl("");
+    setQuickLinkScreen("list");
+  };
+
+  const saveQuickLinkEdit = () => {
+    const project = editingQuickLinkProject.trim() || DEFAULT_QUICK_LINK_PROJECT;
+    const name = editingQuickLinkName.trim();
+    const url = normalizeQuickLink(editingQuickLinkUrl);
+    if (!name) return notify("请填写按钮名称");
+    if (!url) return notify("请输入有效的 HTTP 或 HTTPS 链接");
+    saveQuickLinks(quickLinks.map(link => link.id === editingQuickLinkId
+      ? { ...link, project, name, url }
+      : link));
+    closeQuickLinkEditor();
+    notify(`快捷按钮“${name}”已更新`);
   };
 
   const openQuickLink = (link: QuickLink) => {
@@ -785,7 +841,7 @@ export default function Home() {
       const imported = parseQuickLinkConfig(decodeChineseConfig(await file.arrayBuffer()));
       if (!imported.length) return notify("配置文件中未识别到有效的“按钮名称,链接地址”");
       const deduplicated = [...quickLinks, ...imported].filter((link, index, links) =>
-        links.findIndex(item => item.name === link.name && item.url === link.url) === index);
+        links.findIndex(item => item.project === link.project && item.name === link.name && item.url === link.url) === index);
       saveQuickLinks(deduplicated);
       notify(`已导入 ${deduplicated.length - quickLinks.length} 个快捷按钮`);
     } catch {
@@ -796,7 +852,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <aside className="rail">
-        <div className="brand-mark">R</div>
+        <div className="brand-mark">SYE</div>
         <button
           className={`rail-btn ${workspaceView === "requirements" ? "active" : ""}`}
           aria-label="需求输入"
@@ -865,6 +921,27 @@ export default function Home() {
           </header>
 
         <section className="quick-links card" ref={quickLinksRef}>
+          {quickLinkScreen === "edit" ? (
+            <div className="quick-link-edit-screen">
+              <div className="quick-link-edit-head">
+                <button onClick={closeQuickLinkEditor}>← 返回快捷路径</button>
+                <div>
+                  <span className="section-kicker">EDIT QUICK PATH</span>
+                  <h2>修改快捷按钮</h2>
+                  <p>修改项目归属、按钮名称或链接地址，保存后立即更新本地配置。</p>
+                </div>
+              </div>
+              <div className="quick-link-edit-form">
+                <label>项目名称<input value={editingQuickLinkProject} onChange={event => setEditingQuickLinkProject(event.target.value)} /></label>
+                <label>按钮名称<input value={editingQuickLinkName} onChange={event => setEditingQuickLinkName(event.target.value)} /></label>
+                <label>在线地址 / 链接<input value={editingQuickLinkUrl} onChange={event => setEditingQuickLinkUrl(event.target.value)} /></label>
+                <div className="quick-link-edit-actions">
+                  <button className="ghost" onClick={closeQuickLinkEditor}>取消</button>
+                  <button className="primary" onClick={saveQuickLinkEdit}>保存修改</button>
+                </div>
+              </div>
+            </div>
+          ) : (<>
           <div className="quick-links-heading">
             <div>
               <span className="section-kicker">QUICK PATHS</span>
@@ -884,6 +961,14 @@ export default function Home() {
           </div>
 
           <div className="quick-link-editor">
+            <label>
+              <span>项目名称</span>
+              <input
+                value={quickLinkProject}
+                onChange={event => setQuickLinkProject(event.target.value)}
+                placeholder="例如：Nova 项目"
+              />
+            </label>
             <label>
               <span>按钮名称</span>
               <input
@@ -906,29 +991,43 @@ export default function Home() {
             <button onClick={addQuickLink}>添加快捷按钮</button>
           </div>
 
-          <div className="quick-link-list">
-            {quickLinks.length ? quickLinks.map(link => (
-              <div className="quick-link-item" key={link.id}>
-                <button className="quick-open" onClick={() => openQuickLink(link)}>
-                  <span>↗</span>
-                  <strong>{link.name}</strong>
-                  <small>{link.url}</small>
-                </button>
-                <button
-                  className="quick-remove"
-                  aria-label={`删除快捷路径 ${link.name}`}
-                  onClick={() => {
-                    saveQuickLinks(quickLinks.filter(item => item.id !== link.id));
-                    notify(`快捷按钮“${link.name}”已删除`);
-                  }}
-                >×</button>
-              </div>
+          <div className="quick-project-list">
+            {groupedQuickLinks.length ? groupedQuickLinks.map(group => (
+              <section className="quick-project" key={group.project}>
+                <div className="quick-project-head">
+                  <div><span>PROJECT</span><h3>{group.project}</h3></div>
+                  <small>{group.links.length} 个按钮</small>
+                </div>
+                <div className="quick-link-list">
+                  {group.links.map(link => (
+                    <div className="quick-link-item" key={link.id}>
+                      <button className="quick-open" onClick={() => openQuickLink(link)}>
+                        <span>↗</span>
+                        <strong>{link.name}</strong>
+                        <small>{link.url}</small>
+                      </button>
+                      <div className="quick-link-manage">
+                        <button aria-label={`修改快捷路径 ${link.name}`} onClick={() => openQuickLinkEditor(link)}>修改</button>
+                        <button
+                          className="quick-remove"
+                          aria-label={`删除快捷路径 ${link.name}`}
+                          onClick={() => {
+                            saveQuickLinks(quickLinks.filter(item => item.id !== link.id));
+                            notify(`快捷按钮“${link.name}”已删除`);
+                          }}
+                        >×</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )) : (
               <div className="quick-links-empty">
-                尚未添加快捷路径。也可以导入配置文件，格式：按钮名称,链接地址
+                尚未添加快捷路径。支持：按钮名称,链接地址；或：项目名称,按钮名称,链接地址
               </div>
             )}
           </div>
+          </>)}
         </section>
         </div>
 

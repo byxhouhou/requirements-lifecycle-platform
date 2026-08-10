@@ -84,4 +84,18 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /new TextDecoder\("gb18030"\)/);
   assert.match(page, /new TextDecoder\("utf-16le"\)/);
   assert.match(page, /file\.arrayBuffer\(\)/);
+  assert.match(page, /project: string/);
+  assert.match(page, /DEFAULT_QUICK_LINK_PROJECT = "默认项目"/);
+  assert.match(page, /type QuickLinkScreen = "list" \| "edit"/);
+  assert.match(page, /openQuickLinkEditor/);
+  assert.match(page, /saveQuickLinkEdit/);
+  assert.match(page, /groupedQuickLinks\.map/);
+});
+
+test("Windows package embeds the generated SYE application icon", async () => {
+  const script = await readFile(new URL("../launcher/build-exe.ps1", import.meta.url), "utf8");
+
+  assert.match(script, /DrawString\("SYE"/);
+  assert.match(script, /\/win32icon:\$iconOutput/);
+  assert.match(script, /SYE-icon\.png/);
 });
