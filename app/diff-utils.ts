@@ -69,8 +69,15 @@ const extractDocxText = async (file: File) => {
 export const snapshotDocuments = async (documents: SnapshotInput[]): Promise<SnapshotFile[]> =>
   Promise.all(documents.map(async document => {
     const isDocx = /\.docx$/i.test(document.name);
+    const isPlainText = /\.(txt|md|markdown|csv|json|xml|yaml|yml)$/i.test(document.name);
     let content = "";
-    if (isDocx) {
+    if (isPlainText) {
+      try {
+        content = await document.file.text();
+      } catch {
+        content = "";
+      }
+    } else if (isDocx) {
       try {
         content = await extractDocxText(document.file);
       } catch {

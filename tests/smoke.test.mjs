@@ -52,7 +52,7 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
 test("home page is a local toolbox without baseline creation elements", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks"/);
   assert.match(page, /本地小工具工作台/);
   assert.match(page, /setWorkspaceView\("compare"\)/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
@@ -84,7 +84,7 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
   assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(page, /按钮名称,链接地址/);
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks"/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
   assert.match(page, /workspaceView !== "compare" \? "view-hidden"/);
   assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
@@ -108,4 +108,23 @@ test("Windows package embeds the generated SYE application icon", async () => {
   assert.match(script, /\$iconWriter\.Write\(\[uint16\]\$iconSizes\.Count\)/);
   assert.match(script, /\/win32icon:\$iconOutput/);
   assert.match(script, /SYE-icon\.png/);
+});
+
+test("productivity tools persist locally and expose the desktop screenshot launcher", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const diff = await readFile(new URL("../app/diff-utils.ts", import.meta.url), "utf8");
+  const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
+
+  assert.match(page, /文档内容提取/);
+  assert.match(page, /评审问题记录/);
+  assert.match(page, /本地任务清单/);
+  assert.match(page, /sye-review-issues-v1/);
+  assert.match(page, /sye-local-tasks-v1/);
+  assert.match(page, /\/api\/tools\/screenshot\/show/);
+  assert.match(diff, /isPlainText/);
+  assert.match(diff, /document\.file\.text\(\)/);
+  assert.match(launcher, /class ScreenshotFloatingForm/);
+  assert.match(launcher, /graphics\.CopyFromScreen/);
+  assert.match(launcher, /Clipboard\.SetImage/);
+  assert.match(launcher, /SaveFileDialog/);
 });

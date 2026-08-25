@@ -6,6 +6,7 @@ import "./input-overrides.css";
 import "./compare.css";
 import "./quick-links.css";
 import "./tool-home.css";
+import "./productivity-tools.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -40,7 +41,7 @@ type BaselineCommit = {
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
-type WorkspaceView = "tools" | "compare" | "quick-links";
+type WorkspaceView = "tools" | "compare" | "quick-links" | "extract" | "reviews" | "tasks";
 
 type BeyondCompareStatus = {
   installed: boolean;
@@ -65,6 +66,27 @@ type QuickLink = {
 };
 
 type QuickLinkScreen = "list" | "edit";
+
+type ReviewIssue = {
+  id: string;
+  code: string;
+  document: string;
+  location: string;
+  description: string;
+  owner: string;
+  status: "待处理" | "处理中" | "已关闭";
+  dueDate: string;
+  createdAt: string;
+};
+
+type LocalTask = {
+  id: string;
+  title: string;
+  priority: "高" | "中" | "低";
+  dueDate: string;
+  completed: boolean;
+  createdAt: string;
+};
 
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
 type FileHandle = { createWritable: () => Promise<WritableFile> };
@@ -300,7 +322,30 @@ export default function Home() {
   const [editType, setEditType] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editConfirming, setEditConfirming] = useState(false);
+  const extractInputRef = useRef<HTMLInputElement>(null);
+  const [extractFileName, setExtractFileName] = useState("");
+  const [extractedText, setExtractedText] = useState("");
+  const [extractReadable, setExtractReadable] = useState(false);
+  const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
+  const [reviewDocument, setReviewDocument] = useState("");
+  const [reviewLocation, setReviewLocation] = useState("");
+  const [reviewDescription, setReviewDescription] = useState("");
+  const [reviewOwner, setReviewOwner] = useState("");
+  const [reviewDueDate, setReviewDueDate] = useState("");
+  const [tasks, setTasks] = useState<LocalTask[]>([]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskPriority, setTaskPriority] = useState<LocalTask["priority"]>("中");
+  const [taskDueDate, setTaskDueDate] = useState("");
 
+  useEffect(() => {
+    try {
+      setReviewIssues(JSON.parse(localStorage.getItem("sye-review-issues-v1") || "[]"));
+      setTasks(JSON.parse(localStorage.getItem("sye-local-tasks-v1") || "[]"));
+    } catch {
+      setReviewIssues([]);
+      setTasks([]);
+    }
+  }, []);
   useEffect(() => {
     void loadPersistedState().then(state => {
       setHistory(state.history);
@@ -848,6 +893,65 @@ export default function Home() {
     }
   };
 
+  const persistReviews = (items: ReviewIssue[]) => {
+    setReviewIssues(items);
+    localStorage.setItem("sye-review-issues-v1", JSON.stringify(items));
+  };
+
+  const persistTasks = (items: LocalTask[]) => {
+    setTasks(items);
+    localStorage.setItem("sye-local-tasks-v1", JSON.stringify(items));
+  };
+
+  const extractDocument = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const extension = file.name.split(".").pop()?.toUpperCase() || "FILE";
+    const [snapshot] = await snapshotDocuments([{ file, name: file.name, path: file.name, format: extension, size: file.size }]);
+    setExtractFileName(file.name);
+    setExtractedText(snapshot.content);
+    setExtractReadable(snapshot.readable);
+    notify(snapshot.readable ? "文档内容提取完成" : "当前格式暂只能提取文件属性");
+  };
+
+  const exportExtractedText = () => {
+    if (!extractedText) return notify("请先提取文档内容");
+    const blob = new Blob([extractedText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${extractFileName.replace(/\.[^.]+$/, "") || "文档内容"}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const addReviewIssue = () => {
+    if (!reviewDescription.trim()) return notify("请填写评审问题描述");
+    const next: ReviewIssue = { id: crypto.randomUUID(), code: `RI-${String(reviewIssues.length + 1).padStart(4, "0")}`, document: reviewDocument.trim(), location: reviewLocation.trim(), description: reviewDescription.trim(), owner: reviewOwner.trim(), status: "待处理", dueDate: reviewDueDate, createdAt: new Date().toISOString() };
+    persistReviews([next, ...reviewIssues]);
+    setReviewDescription("");
+    setReviewLocation("");
+    notify(`${next.code} 已保存`);
+  };
+
+  const addTask = () => {
+    if (!taskTitle.trim()) return notify("请填写任务内容");
+    const next: LocalTask = { id: crypto.randomUUID(), title: taskTitle.trim(), priority: taskPriority, dueDate: taskDueDate, completed: false, createdAt: new Date().toISOString() };
+    persistTasks([next, ...tasks]);
+    setTaskTitle("");
+    notify("任务已添加");
+  };
+
+  const launchScreenshotTool = async () => {
+    try {
+      const response = await fetch("/api/tools/screenshot/show", { method: "POST", headers: { "X-ReqFlow-Integration": "screenshot" } });
+      if (!response.ok) throw new Error();
+      notify("截图悬浮按钮已显示在桌面右上角");
+    } catch {
+      notify("截图工具仅在 SYE.exe 中可用");
+    }
+  };
   return (
     <main className="app-shell">
       <aside className="rail">
@@ -873,7 +977,10 @@ export default function Home() {
           <button className="tool-card" onClick={() => { setComparisonMethod("beyond"); setWorkspaceView("compare"); }}><span>BC</span><div><strong>Beyond Compare</strong><small>选择两个本机文档并调用桌面程序</small></div><b>打开 →</b></button>
           <button className="tool-card" onClick={() => { setComparisonMethod("ai"); setWorkspaceView("compare"); }}><span>AI</span><div><strong>AI 对比</strong><small>预留语义分析入口，外部服务默认关闭</small></div><b>打开 →</b></button>
           <button className="tool-card" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><div><strong>快捷路径</strong><small>按项目管理常用网页和内部系统入口</small></div><b>打开 →</b></button>
-          <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
+          <button className="tool-card" onClick={() => setWorkspaceView("extract")}><span>TX</span><div><strong>文档内容提取</strong><small>提取 DOCX 和常用文本格式，复制或导出 TXT</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("reviews")}><span>RI</span><div><strong>评审问题记录</strong><small>管理问题、章节、责任人、状态和截止日期</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("tasks")}><span>✓</span><div><strong>本地任务清单</strong><small>记录优先级、截止日期和完成状态</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => void launchScreenshotTool()}><span>▣</span><div><strong>桌面悬浮截图</strong><small>显示置顶截图按钮，框选后复制或保存 PNG</small></div><b>启动 →</b></button>          <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
           <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>已有历史快照可在文档对比工具中继续使用。</small></div>
         </section>
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
@@ -999,6 +1106,29 @@ export default function Home() {
         </section>
         </div>
 
+        <section className={`productivity-view ${workspaceView !== "extract" ? "view-hidden" : ""}`}>
+          <header className="productivity-head"><div><span>DOCUMENT EXTRACTOR</span><h1>文档内容提取</h1><p>所有解析在浏览器本机完成。DOCX、TXT、Markdown、CSV、JSON、XML 支持正文提取。</p></div><button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button></header>
+          <div className="extract-layout">
+            <section className="tool-panel extract-picker">
+              <input ref={extractInputRef} className="hidden-input" type="file" accept=".docx,.txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.pdf,.wps,.doc" onChange={event => void extractDocument(event)} />
+              <div className="extract-icon">TX</div><h2>{extractFileName || "选择需要提取的文档"}</h2><p>DOC、WPS、PDF 当前提供文件属性摘要；后续可扩展本机 Office/WPS 解析。</p>
+              <button className="primary" onClick={() => extractInputRef.current?.click()}>选择文档</button>
+            </section>
+            <section className="tool-panel extract-result"><div className="panel-toolbar"><div><strong>提取结果</strong><small>{extractFileName ? (extractReadable ? "正文已提取" : "属性摘要") : "尚未选择文件"}</small></div><div><button className="ghost" disabled={!extractedText} onClick={() => void navigator.clipboard.writeText(extractedText)}>复制</button><button className="primary" disabled={!extractedText} onClick={exportExtractedText}>导出 TXT</button></div></div><textarea value={extractedText} onChange={event => setExtractedText(event.target.value)} placeholder="提取后的内容会显示在这里，并支持继续编辑…" /></section>
+          </div>
+        </section>
+
+        <section className={`productivity-view ${workspaceView !== "reviews" ? "view-hidden" : ""}`}>
+          <header className="productivity-head"><div><span>REVIEW ISSUES</span><h1>评审问题记录器</h1><p>评审问题只保存在当前电脑，可随时更新状态或删除。</p></div><button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button></header>
+          <section className="tool-panel entry-form review-form"><input value={reviewDocument} onChange={event => setReviewDocument(event.target.value)} placeholder="文档名称" /><input value={reviewLocation} onChange={event => setReviewLocation(event.target.value)} placeholder="章节 / 页码" /><input value={reviewOwner} onChange={event => setReviewOwner(event.target.value)} placeholder="责任人" /><input type="date" value={reviewDueDate} onChange={event => setReviewDueDate(event.target.value)} /><textarea value={reviewDescription} onChange={event => setReviewDescription(event.target.value)} placeholder="评审问题描述" /><button className="primary" onClick={addReviewIssue}>添加问题</button></section>
+          <section className="tool-panel record-list">{reviewIssues.length ? reviewIssues.map(issue => <article className="record-row" key={issue.id}><code>{issue.code}</code><div><strong>{issue.description}</strong><small>{issue.document || "未指定文档"} · {issue.location || "未指定位置"} · {issue.owner || "未指定责任人"}{issue.dueDate ? ` · ${issue.dueDate}` : ""}</small></div><select value={issue.status} onChange={event => persistReviews(reviewIssues.map(item => item.id === issue.id ? { ...item, status: event.target.value as ReviewIssue["status"] } : item))}><option>待处理</option><option>处理中</option><option>已关闭</option></select><button className="record-delete" onClick={() => persistReviews(reviewIssues.filter(item => item.id !== issue.id))}>删除</button></article>) : <div className="tool-empty">尚无评审问题</div>}</section>
+        </section>
+
+        <section className={`productivity-view ${workspaceView !== "tasks" ? "view-hidden" : ""}`}>
+          <header className="productivity-head"><div><span>LOCAL TASKS</span><h1>本地任务清单</h1><p>轻量记录个人待办，不连接外部任务系统。</p></div><button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button></header>
+          <section className="tool-panel entry-form task-form"><input value={taskTitle} onChange={event => setTaskTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") addTask(); }} placeholder="输入任务内容" /><select value={taskPriority} onChange={event => setTaskPriority(event.target.value as LocalTask["priority"])}><option>高</option><option>中</option><option>低</option></select><input type="date" value={taskDueDate} onChange={event => setTaskDueDate(event.target.value)} /><button className="primary" onClick={addTask}>添加任务</button></section>
+          <section className="tool-panel record-list">{tasks.length ? tasks.map(task => <article className={`record-row task-row ${task.completed ? "completed" : ""}`} key={task.id}><input type="checkbox" checked={task.completed} onChange={() => persistTasks(tasks.map(item => item.id === task.id ? { ...item, completed: !item.completed } : item))} /><span className={`priority priority-${task.priority}`}>{task.priority}</span><div><strong>{task.title}</strong><small>{task.dueDate ? `截止：${task.dueDate}` : "无截止日期"}</small></div><button className="record-delete" onClick={() => persistTasks(tasks.filter(item => item.id !== task.id))}>删除</button></article>) : <div className="tool-empty">尚无待办任务</div>}</section>
+        </section>
         <header className={`topbar compare-tool-topbar ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
           <div><div className="eyebrow">SYE / DOCUMENT TOOLS</div><div className="title-row"><h1>文档对比工具</h1><span className="local-badge">● 按需使用</span></div></div>
           <button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button>

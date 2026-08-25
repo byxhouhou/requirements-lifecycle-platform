@@ -98,11 +98,14 @@ namespace ReqFlowLauncher
         private readonly CancellationTokenSource cancellation = new CancellationTokenSource();
         private readonly NotifyIcon trayIcon;
         private readonly Icon appIcon;
+        private readonly SynchronizationContext uiContext;
+        private ScreenshotFloatingForm screenshotTool;
         private readonly Dictionary<string, string> localFileTokens = new Dictionary<string, string>();
         private readonly object localFileTokenLock = new object();
 
         internal ReqFlowContext()
         {
+            uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var reqFlowRoot = Path.Combine(localData, "ReqFlow");
             appRoot = Path.Combine(reqFlowRoot, "app");
@@ -116,6 +119,7 @@ namespace ReqFlowLauncher
 
             var menu = new ContextMenuStrip();
             menu.Items.Add("打开 SYE", null, delegate { Program.OpenBrowser(); });
+            menu.Items.Add("桌面截图工具", null, delegate { ShowScreenshotTool(); });
             menu.Items.Add("检查更新", null, delegate { LaunchUpdater(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { ExitThread(); });
@@ -227,6 +231,11 @@ namespace ReqFlowLauncher
                         HandleStateRequest(stream, request);
                         return;
                     }
+                    if (request.Path == "/api/tools/screenshot/show")
+                    {
+                        HandleScreenshotRequest(stream, request);
+                        return;
+                    }
                     if (request.Path.StartsWith("/api/integrations/beyond-compare/", StringComparison.Ordinal))
                     {
                         HandleBeyondCompareRequest(stream, request);
@@ -273,6 +282,35 @@ namespace ReqFlowLauncher
             }
         }
 
+        private void ShowScreenshotTool()
+        {
+            uiContext.Post(delegate
+            {
+                if (screenshotTool == null || screenshotTool.IsDisposed)
+                {
+                    screenshotTool = new ScreenshotFloatingForm();
+                }
+                screenshotTool.Show();
+                screenshotTool.BringToFront();
+            }, null);
+        }
+
+        private void HandleScreenshotRequest(NetworkStream stream, HttpRequest request)
+        {
+            if (request.Method != "POST")
+            {
+                WriteJson(stream, 405, new { error = "method_not_allowed" });
+                return;
+            }
+            string header;
+            if (!request.Headers.TryGetValue("X-ReqFlow-Integration", out header) || header != "screenshot")
+            {
+                WriteJson(stream, 403, new { error = "integration_header_required" });
+                return;
+            }
+            ShowScreenshotTool();
+            WriteJson(stream, 200, new { shown = true });
+        }
         private void HandleStateRequest(NetworkStream stream, HttpRequest request)
         {
             if (request.Method == "GET")
@@ -818,6 +856,7 @@ namespace ReqFlowLauncher
             listener.Stop();
             trayIcon.Visible = false;
             trayIcon.Dispose();
+            if (screenshotTool != null && !screenshotTool.IsDisposed) screenshotTool.Dispose();
             if (appIcon != null) appIcon.Dispose();
             base.ExitThreadCore();
         }
@@ -836,4 +875,159 @@ namespace ReqFlowLauncher
             internal List<string> Paths;
         }
     }
+    internal sealed class ScreenshotFloatingForm : Form
+    {
+        private readonly Button captureButton;
+
+        internal ScreenshotFloatingForm()
+        {
+            Text = "SYE 截图";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            StartPosition = FormStartPosition.Manual;
+            Size = new Size(92, 42);
+            BackColor = Color.FromArgb(24, 132, 86);
+            var area = Screen.PrimaryScreen.WorkingArea;
+            Location = new Point(area.Right - Width - 22, area.Top + 22);
+
+            captureButton = new Button
+            {
+                Dock = DockStyle.Fill,
+                FlatStyle = FlatStyle.Flat,
+                Text = "▣  截图",
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(24, 132, 86),
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                Cursor = Cursors.Cross
+            };
+            captureButton.FlatAppearance.BorderSize = 0;
+            captureButton.Click += delegate { BeginCapture(); };
+            Controls.Add(captureButton);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Right) Hide();
+        }
+
+        private void BeginCapture()
+        {
+            Hide();
+            var timer = new System.Windows.Forms.Timer { Interval = 160 };
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                timer.Dispose();
+                var overlay = new ScreenshotRegionForm();
+                overlay.FormClosed += delegate { if (!IsDisposed) Show(); };
+                overlay.Show();
+            };
+            timer.Start();
+        }
+    }
+
+    internal sealed class ScreenshotRegionForm : Form
+    {
+        private readonly Bitmap desktop;
+        private Point start;
+        private Point current;
+        private bool selecting;
+
+        internal ScreenshotRegionForm()
+        {
+            var virtualScreen = SystemInformation.VirtualScreen;
+            desktop = new Bitmap(virtualScreen.Width, virtualScreen.Height);
+            using (var graphics = Graphics.FromImage(desktop))
+            {
+                graphics.CopyFromScreen(virtualScreen.Left, virtualScreen.Top, 0, 0, virtualScreen.Size);
+            }
+            FormBorderStyle = FormBorderStyle.None;
+            Bounds = virtualScreen;
+            ShowInTaskbar = false;
+            TopMost = true;
+            DoubleBuffered = true;
+            Cursor = Cursors.Cross;
+            KeyPreview = true;
+            KeyDown += delegate(object sender, KeyEventArgs args) { if (args.KeyCode == Keys.Escape) Close(); };
+            MouseDown += OnSelectStart;
+            MouseMove += OnSelectMove;
+            MouseUp += OnSelectEnd;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.DrawImageUnscaled(desktop, 0, 0);
+            using (var shade = new SolidBrush(Color.FromArgb(100, Color.Black))) e.Graphics.FillRectangle(shade, ClientRectangle);
+            var rectangle = SelectionRectangle();
+            if (rectangle.Width > 0 && rectangle.Height > 0)
+            {
+                e.Graphics.DrawImage(desktop, rectangle, rectangle, GraphicsUnit.Pixel);
+                using (var pen = new Pen(Color.FromArgb(53, 183, 121), 2)) e.Graphics.DrawRectangle(pen, rectangle);
+                var sizeText = rectangle.Width + " × " + rectangle.Height;
+                using (var font = new Font("Microsoft YaHei UI", 9F))
+                using (var background = new SolidBrush(Color.FromArgb(220, 20, 30, 27)))
+                using (var foreground = new SolidBrush(Color.White))
+                {
+                    var measured = e.Graphics.MeasureString(sizeText, font);
+                    var label = new RectangleF(rectangle.Left, Math.Max(0, rectangle.Top - measured.Height - 5), measured.Width + 10, measured.Height + 4);
+                    e.Graphics.FillRectangle(background, label);
+                    e.Graphics.DrawString(sizeText, font, foreground, label.Left + 5, label.Top + 2);
+                }
+            }
+        }
+
+        private void OnSelectStart(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            selecting = true;
+            start = current = e.Location;
+            Invalidate();
+        }
+
+        private void OnSelectMove(object sender, MouseEventArgs e)
+        {
+            if (!selecting) return;
+            current = e.Location;
+            Invalidate();
+        }
+
+        private void OnSelectEnd(object sender, MouseEventArgs e)
+        {
+            if (!selecting) return;
+            selecting = false;
+            current = e.Location;
+            var rectangle = SelectionRectangle();
+            if (rectangle.Width < 3 || rectangle.Height < 3) { Close(); return; }
+            using (var captured = desktop.Clone(rectangle, desktop.PixelFormat))
+            {
+                Clipboard.SetImage(captured);
+                var save = MessageBox.Show("截图已复制到剪贴板。是否同时保存为 PNG？", "SYE 截图", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                if (save == DialogResult.Yes)
+                {
+                    using (var dialog = new SaveFileDialog())
+                    {
+                        dialog.Title = "保存 SYE 截图";
+                        dialog.Filter = "PNG 图片 (*.png)|*.png";
+                        dialog.FileName = "SYE截图_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+                        if (dialog.ShowDialog() == DialogResult.OK) captured.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                }
+            }
+            Close();
+        }
+
+        private Rectangle SelectionRectangle()
+        {
+            return Rectangle.FromLTRB(Math.Min(start.X, current.X), Math.Min(start.Y, current.Y), Math.Max(start.X, current.X), Math.Max(start.Y, current.Y));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) desktop.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
 }
