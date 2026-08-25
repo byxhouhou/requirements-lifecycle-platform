@@ -49,16 +49,17 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
   assert.match(launcher, /ValidateDocumentPath/);
 });
 
-test("development mode opens the browser file chooser synchronously", async () => {
+test("home page is a local toolbox without baseline creation elements", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /window\.location\.port === "37651"/);
-  assert.match(page, /fileInputRef\.current\?\.click\(\)/);
-  assert.match(page, /folderInputRef\.current\?\.click\(\)/);
-  assert.match(page, /aria-label="选择一个或多个需求文档"/);
-  assert.match(page, /void chooseDocuments\("files"\)/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links"/);
+  assert.match(page, /本地小工具工作台/);
+  assert.match(page, /setWorkspaceView\("compare"\)/);
+  assert.match(page, /setWorkspaceView\("quick-links"\)/);
+  assert.doesNotMatch(page, /className="card source-card"/);
+  assert.doesNotMatch(page, /className="commit-panel card"/);
+  assert.doesNotMatch(page, /className="card history-card"/);
 });
-
 test("Beyond Compare resolves selected version paths at launch time", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
@@ -83,9 +84,9 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
   assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(page, /按钮名称,链接地址/);
-  assert.match(page, /type WorkspaceView = "requirements" \| "quick-links"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links"/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
-  assert.match(page, /workspaceView !== "requirements" \? "view-hidden"/);
+  assert.match(page, /workspaceView !== "compare" \? "view-hidden"/);
   assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
   assert.match(page, /decodeChineseConfig/);
   assert.match(page, /new TextDecoder\("gb18030"\)/);

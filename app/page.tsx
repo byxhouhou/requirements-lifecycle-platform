@@ -5,6 +5,7 @@ import "./workflow.css";
 import "./input-overrides.css";
 import "./compare.css";
 import "./quick-links.css";
+import "./tool-home.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -39,7 +40,7 @@ type BaselineCommit = {
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
-type WorkspaceView = "requirements" | "quick-links";
+type WorkspaceView = "tools" | "compare" | "quick-links";
 
 type BeyondCompareStatus = {
   installed: boolean;
@@ -260,7 +261,7 @@ export default function Home() {
   const [archiveHandle, setArchiveHandle] = useState<DirectoryHandle | null>(null);
   const [archiveName, setArchiveName] = useState("");
   const [history, setHistory] = useState<BaselineCommit[]>([]);
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("requirements");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("tools");
   const [quickLinks, setQuickLinks] = useState<QuickLink[]>([]);
   const [quickLinkScreen, setQuickLinkScreen] = useState<QuickLinkScreen>("list");
   const [quickLinkProject, setQuickLinkProject] = useState(DEFAULT_QUICK_LINK_PROJECT);
@@ -683,8 +684,6 @@ export default function Home() {
   };
 
   const launchBeyondCompare = async () => {
-    if (!baseVersionId || !targetVersionId) return notify("请选择基准版本和修改版本");
-    if (baseVersionId === targetVersionId) return notify("基准版本和修改版本不能相同");
     const leftPath = beyondLeftPath.trim() || boundComparisonPath(selectedBaseVersion);
     const rightPath = beyondRightPath.trim() || boundComparisonPath(selectedTargetVersion);
     if (!leftPath || !rightPath) return notify("所选版本没有保存文档路径，请先选择对应文件");
@@ -853,61 +852,30 @@ export default function Home() {
     <main className="app-shell">
       <aside className="rail">
         <div className="brand-mark">R</div>
-        <button
-          className={`rail-btn ${workspaceView === "requirements" ? "active" : ""}`}
-          aria-label="需求输入"
-          onClick={() => setWorkspaceView("requirements")}
-        >⇩</button>
-        <button
-          className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`}
-          aria-label="快捷路径工具"
-          onClick={() => setWorkspaceView("quick-links")}
-        >↗</button>
-        <button className="rail-btn" aria-label="基线记录">▤</button>
-        <button className="rail-btn" aria-label="归档管理">▣</button>
+        <button className={`rail-btn ${workspaceView === "tools" ? "active" : ""}`} aria-label="小工具工作台" onClick={() => setWorkspaceView("tools")}>⌂</button>
+        <button className={`rail-btn ${workspaceView === "compare" ? "active" : ""}`} aria-label="版本对比" onClick={() => setWorkspaceView("compare")}>⇄</button>
+        <button className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`} aria-label="快捷路径工具" onClick={() => setWorkspaceView("quick-links")}>↗</button>
         <div className="rail-spacer" />
         <button className="avatar" aria-label="当前用户">林</button>
       </aside>
 
       <section className="workspace">
-        <header className={`topbar ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
+        <header className={`topbar tool-home-topbar ${workspaceView !== "tools" ? "view-hidden" : ""}`}>
           <div>
-            <div className="eyebrow">需求工作空间 / Nova 系统平台</div>
-            <div className="title-row">
-              <h1>需求输入与基线管理</h1>
-              <span className="local-badge">● 本地模式</span>
-            </div>
-          </div>
-          <div className="top-actions">
-            <button className="ghost" onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>选择文件</button>
-            <button className="ghost" onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>选择文件夹</button>
-            <button className="primary" onClick={createBaseline} disabled={working}>
-              {working ? "正在归档…" : "提交新基线"}
-            </button>
+            <div className="eyebrow">SYE / LOCAL TOOLBOX</div>
+            <div className="title-row"><h1>本地小工具工作台</h1><span className="local-badge">● 本地优先</span></div>
+            <p className="tool-home-subtitle">常用文档对比与路径工具集中入口，按需打开、互不干扰。</p>
           </div>
         </header>
 
-        <section className={`flow-strip ${workspaceView !== "requirements" ? "view-hidden" : ""}`} aria-label="基线建立流程">
-          <div className={`flow-step ${documents.length ? "complete" : "current"}`}>
-            <span>01</span><i>选择文件或文件夹</i><small>支持跨目录组合输入</small>
-          </div>
-          <b>→</b>
-          <div className={`flow-step ${documents.length && !archiveHandle ? "current" : archiveHandle ? "complete" : ""}`}>
-            <span>02</span><i>核对文档与信息</i><small>日期 · 类型 · 备注</small>
-          </div>
-          <b>→</b>
-          <div className={`flow-step ${documents.length && archiveHandle ? "current" : ""}`}>
-            <span>03</span><i>建立基线并归档</i><small>版本 · 清单 · 变更记录</small>
-          </div>
+        <section className={`tool-home ${workspaceView !== "tools" ? "view-hidden" : ""}`}>
+          <button className="tool-card tool-card-primary" onClick={() => { setComparisonMethod("local"); setWorkspaceView("compare"); }}><span>⇄</span><div><strong>本地版本对比</strong><small>逐行查看已有版本的新增、删除与修改</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => { setComparisonMethod("beyond"); setWorkspaceView("compare"); }}><span>BC</span><div><strong>Beyond Compare</strong><small>选择两个本机文档并调用桌面程序</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => { setComparisonMethod("ai"); setWorkspaceView("compare"); }}><span>AI</span><div><strong>AI 对比</strong><small>预留语义分析入口，外部服务默认关闭</small></div><b>打开 →</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><div><strong>快捷路径</strong><small>按项目管理常用网页和内部系统入口</small></div><b>打开 →</b></button>
+          <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
+          <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>历史记录仅用于版本对比，不在首页提供基线建立入口。</small></div>
         </section>
-
-        <section className={`metrics ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
-          <div><span>本次输入</span><strong>{documents.length}</strong><small>份有效文档</small></div>
-          <div><span>输入容量</span><strong>{readableSize(totalSize)}</strong><small>待归档文件</small></div>
-          <div><span>已有基线</span><strong>{history.length}</strong><small>次版本提交</small></div>
-          <div><span>当前归档</span><strong className="folder-metric">{archiveName || "尚未设置"}</strong><small>{archiveName ? "可写入" : "请选择文件夹"}</small></div>
-        </section>
-
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
           <header className="topbar quick-path-topbar">
             <div>
@@ -1031,75 +999,12 @@ export default function Home() {
         </section>
         </div>
 
-        <section className={`main-grid ${workspaceView !== "requirements" ? "view-hidden" : ""}`}>
+        <header className={`topbar compare-tool-topbar ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
+          <div><div className="eyebrow">SYE / DOCUMENT TOOLS</div><div className="title-row"><h1>文档版本对比工具</h1><span className="local-badge">● 按需使用</span></div></div>
+          <button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button>
+        </header>
+        <section className={`main-grid compare-workspace ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
           <div className="main-column">
-            <section className="card source-card">
-              <div className="card-head">
-                <div><span className="section-kicker">SOURCE DOCUMENTS</span><h2>输入文档</h2></div>
-                {sourceFolder && <div className="folder-chip">▰ {sourceFolder}</div>}
-              </div>
-
-              {!documents.length ? (
-                <div
-                  className="drop-zone"
-                  role="button"
-                  tabIndex={0}
-                  aria-label="选择一个或多个需求文档"
-                  aria-disabled={selectingDocuments}
-                  onClick={event => {
-                    if ((event.target as HTMLElement).closest("button") || selectingDocuments) return;
-                    void chooseDocuments("files");
-                  }}
-                  onKeyDown={event => {
-                    if (selectingDocuments || (event.key !== "Enter" && event.key !== " ")) return;
-                    event.preventDefault();
-                    void chooseDocuments("files");
-                  }}
-                >
-                  <span className="drop-icon">⇩</span>
-                  <strong>添加需求输入文档</strong>
-                  <small>点击此区域选择文件，也可一次导入整个文件夹</small>
-                  <div className="drop-actions">
-                    <button className="drop-primary" onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>选择一个或多个文件</button>
-                    <button onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>选择整个文件夹</button>
-                  </div>
-                  <em>支持 .doc、.docx、.wps 和 .pdf</em>
-                </div>
-              ) : (
-                <div className="doc-list">
-                  {documents.map(doc => (
-                    <article className="doc-row" key={doc.id}>
-                      <div className={`format-icon ${doc.format.toLowerCase()}`}>{doc.format === "WORD" ? "W" : doc.format === "PDF" ? "P" : "S"}</div>
-                      <div className="doc-info"><strong>{doc.name}</strong><small>{doc.absolutePath || doc.path} · {readableSize(doc.size)}</small></div>
-                      <span className="ready-dot">● 待归档</span>
-                      <button onClick={() => removeDoc(doc.id)} aria-label={`移除 ${doc.name}`}>×</button>
-                    </article>
-                  ))}
-                  <div className="add-more">
-                    <button onClick={() => void chooseDocuments("files")} disabled={selectingDocuments}>＋ 追加文件</button>
-                    <button onClick={() => void chooseDocuments("folder")} disabled={selectingDocuments}>↻ 重新选择文件夹</button>
-                  </div>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                className="hidden-input"
-                type="file"
-                multiple
-                accept=".doc,.docx,.wps,.pdf"
-                onChange={event => importDocuments(event, "files")}
-              />
-              <input
-                ref={folderInputRef}
-                className="hidden-input"
-                type="file"
-                multiple
-                accept=".doc,.docx,.wps,.pdf"
-                onChange={event => importDocuments(event, "folder")}
-                {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-              />
-            </section>
-
             <section className={`card compare-card ${compareFullscreen ? "compare-fullscreen" : ""}`}>
               <div className="card-head compare-heading">
                 <div>
@@ -1160,8 +1065,8 @@ export default function Home() {
               {comparisonMethod === "local" && (comparableVersions.length < 2 ? (
                 <div className="compare-empty">
                   <span>⇄</span>
-                  <p>至少提交两个新基线后即可进行内容对比</p>
-                  <small>新提交的 DOCX 文档会自动保存正文快照；历史旧记录需要重新提交。</small>
+                  <p>暂无两个可比较的历史版本</p>
+                  <small>当前工具仅使用本机已有的版本快照，不提供新的基线建立入口。</small>
                 </div>
               ) : (
                 <>
@@ -1293,7 +1198,7 @@ export default function Home() {
                     <div>
                       <strong>{beyondStatus?.installed ? `已检测到 Beyond Compare ${beyondStatus.version}` : "未自动检测到 Beyond Compare"}</strong>
                       <small>{beyondStatus?.installed
-                        ? "已使用本机程序；新归档版本会自动带入当时导入的原始文档路径。"
+                        ? "已使用本机程序；可以选择历史版本路径，也可以手动选择两个本机文档。"
                         : "未找到本机程序，请先选择 BCompare.exe，再填写两个版本的文档路径。"}</small>
                     </div>
                   </div>
@@ -1450,124 +1355,10 @@ export default function Home() {
               )}
             </section>
 
-            <section className="card history-card">
-              <div className="card-head">
-                <div><span className="section-kicker">DOCUMENT ARCHIVE</span><h2>文档归档记录</h2></div>
-                <span className="history-count">{history.length} 次归档</span>
-              </div>
-              {!history.length ? (
-                <div className="empty-history"><span>⌁</span><p>尚无文档归档记录</p><small>完成首次归档后，记录会显示在这里</small></div>
-              ) : (
-                <div className="timeline">
-                  {history.map((item, index) => (
-                    <article className="commit" key={`${item.id}-${index}`}>
-                      <div className="commit-line"><i /></div>
-                      <div className="commit-main">
-                        <div>
-                          <strong>{item.version}</strong><code>{item.id}</code><span>{item.type}</span>
-                          <button className="edit-record" onClick={() => openRecordEditor(item)} aria-label={`修改 ${item.version} 归档信息`}>修改</button>
-                          <button className="delete-record" onClick={() => setDeleteTarget(item)} aria-label={`删除 ${item.version} 记录`}>删除</button>
-                        </div>
-                        <p>{item.note}</p>
-                        <small>{item.date} · {item.author} · {item.fileCount} 份文档 · 归档至 {item.archive}</small>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
           </div>
 
-          <aside className="commit-panel card">
-            <div className="panel-heading">
-              <span className="git-mark">⑂</span>
-              <div><span className="section-kicker">BASELINE COMMIT</span><h2>提交基线</h2></div>
-            </div>
-
-            <label>基线版本号<input value={version} onChange={event => setVersion(event.target.value)} /></label>
-            <div className="field-row">
-              <label>基线日期<input type="date" value={commitDate} onChange={event => setCommitDate(event.target.value)} /></label>
-              <label>变更类型<select value={changeType} onChange={event => setChangeType(event.target.value)}>
-                <option>建立基线</option><option>需求新增</option><option>需求变更</option><option>问题修订</option>
-              </select></label>
-            </div>
-            <label>提交人<input value={author} onChange={event => setAuthor(event.target.value)} /></label>
-            <label>变更说明 / 备注<textarea placeholder="说明本次输入文档的来源、变更原因或评审结论…" value={note} onChange={event => setNote(event.target.value)} /></label>
-
-            <div className="archive-box">
-              <div className="archive-icon">▣</div>
-              <div><small>归档文件夹</small><strong>{archiveName || "尚未设置"}</strong><span>{archiveName ? "将生成版本目录、清单与变更记录" : "选择一个本机文件夹用于保存基线"}</span></div>
-              <button onClick={chooseArchive}>{archiveName ? "更改" : "设置"}</button>
-            </div>
-
-            <div className="commit-summary">
-              <div><span>将归档</span><strong>{documents.length} 份文档</strong></div>
-              <div><span>生成内容</span><strong>基线文档 + 清单</strong></div>
-            </div>
-
-            <button className="commit-button" onClick={createBaseline} disabled={working}>
-              <span>⑂</span>{working ? "正在写入归档…" : "建立并提交基线"}
-            </button>
-            <p className="privacy-note">所有文档仅在本机读取并写入你选择的归档目录，不会上传。</p>
-          </aside>
         </section>
       </section>
-      {deleteTarget && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={event => {
-          if (event.target === event.currentTarget) setDeleteTarget(null);
-        }}>
-          <section className="delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title">
-            <button className="dialog-close" onClick={() => setDeleteTarget(null)} aria-label="关闭">×</button>
-            <div className="warning-icon">!</div>
-            <h2 id="delete-title">删除文档归档记录？</h2>
-            <p>即将删除 <strong>{deleteTarget.version}</strong>（{deleteTarget.id}）的本机归档记录与对比快照。</p>
-            <div className="archive-safe-note"><span>▣</span><p><strong>归档文件不会被删除</strong><small>已经写入“{deleteTarget.archive}”的源文档和版本目录仍会保留。</small></p></div>
-            <div className="dialog-actions">
-              <button className="ghost" onClick={() => setDeleteTarget(null)}>取消</button>
-              <button className="danger-button" onClick={deleteRecord}>确认删除记录</button>
-            </div>
-          </section>
-        </div>
-      )}
-      {editTarget && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={event => {
-          if (event.target === event.currentTarget) closeRecordEditor();
-        }}>
-          <section className="delete-dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-            <button className="dialog-close" onClick={closeRecordEditor} aria-label="关闭">×</button>
-            <div className="edit-icon">{editConfirming ? "✓" : "✎"}</div>
-            <h2 id="edit-title">{editConfirming ? "确认修改归档信息" : "修改文档归档记录"}</h2>
-            <p className="edit-identity">{editTarget.version} · {editTarget.id}</p>
-
-            {!editConfirming ? (
-              <>
-                <div className="edit-fields">
-                  <label>变更类型<select value={editType} onChange={event => setEditType(event.target.value)}>
-                    <option>建立基线</option><option>需求新增</option><option>需求变更</option><option>问题修订</option>
-                  </select></label>
-                  <label>备注<textarea value={editNote} onChange={event => setEditNote(event.target.value)} placeholder="填写本次归档说明…" /></label>
-                </div>
-                <div className="dialog-actions">
-                  <button className="ghost" onClick={closeRecordEditor}>取消</button>
-                  <button className="review-button" onClick={reviewRecordEdit}>下一步：确认修改</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="change-review">
-                  <div><span>变更类型</span><del>{editTarget.type}</del><b>→</b><ins>{editType}</ins></div>
-                  <div className="note-change"><span>备注</span><del>{editTarget.note}</del><b>→</b><ins>{editNote.trim()}</ins></div>
-                </div>
-                <p className="confirm-hint">确认后将更新本机归档记录；归档文件夹中的源文档不会改变。</p>
-                <div className="dialog-actions">
-                  <button className="ghost" onClick={() => setEditConfirming(false)}>返回修改</button>
-                  <button className="confirm-edit-button" onClick={saveRecordEdit}>确认保存修改</button>
-                </div>
-              </>
-            )}
-          </section>
-        </div>
-      )}
       {toast && <div className="toast">✓ {toast}</div>}
     </main>
   );

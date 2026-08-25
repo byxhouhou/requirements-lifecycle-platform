@@ -1,0 +1,22 @@
+.tool-home-topbar { padding-bottom: 8px; }
+.tool-home-subtitle { margin: 8px 0 0; color: #7d8798; font-size: 12px; }
+.tool-home { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 24px 28px 34px; }
+.tool-card, .tool-info-card { min-height: 138px; border: 1px solid #e1e5ec; border-radius: 15px; background: #fff; box-shadow: 0 10px 30px rgba(31,42,68,.06); }
+.tool-card { display: grid; grid-template-columns: 54px 1fr auto; align-items: center; gap: 18px; padding: 22px; color: #323c50; text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.tool-card:hover { transform: translateY(-2px); border-color: #b9afea; box-shadow: 0 14px 34px rgba(72,57,145,.12); }
+.tool-card > span { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 14px; background: #eeeafe; color: #654fd0; font-size: 14px; font-weight: 900; }
+.tool-card > div { display: grid; gap: 7px; }
+.tool-card strong { font-size: 15px; }
+.tool-card small { color: #7d8798; font-size: 10px; line-height: 1.55; }
+.tool-card > b { color: #7662d4; font-size: 10px; white-space: nowrap; }
+.tool-card-primary { border-color: #cfc5fb; background: linear-gradient(135deg,#fff,#f8f6ff); }
+.tool-info-card { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 22px; background: #f8fafc; }
+.tool-info-card > span { color: #8b94a4; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.tool-info-card strong { color: #414b5e; font-size: 14px; }
+.tool-info-card small { color: #8992a1; font-size: 10px; line-height: 1.6; }
+.compare-tool-topbar { border-bottom: 1px solid #e8ebf0; }
+.compare-workspace { grid-template-columns: minmax(0,1fr); padding: 22px 28px 34px; }
+.compare-workspace .source-card, .compare-workspace .history-card, .compare-workspace .commit-panel { display: none !important; }
+.compare-workspace .main-column { min-width: 0; }
+.compare-workspace .compare-card { margin: 0; }
+@media(max-width:760px){ .tool-home{grid-template-columns:1fr;padding:18px}.tool-card{grid-template-columns:46px 1fr}.tool-card>b{display:none}.compare-workspace{padding:16px} }
