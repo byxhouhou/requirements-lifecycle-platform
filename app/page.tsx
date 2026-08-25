@@ -851,9 +851,9 @@ export default function Home() {
   return (
     <main className="app-shell">
       <aside className="rail">
-        <div className="brand-mark">R</div>
+        <div className="brand-mark">S</div>
         <button className={`rail-btn ${workspaceView === "tools" ? "active" : ""}`} aria-label="小工具工作台" onClick={() => setWorkspaceView("tools")}>⌂</button>
-        <button className={`rail-btn ${workspaceView === "compare" ? "active" : ""}`} aria-label="版本对比" onClick={() => setWorkspaceView("compare")}>⇄</button>
+        <button className={`rail-btn ${workspaceView === "compare" ? "active" : ""}`} aria-label="文档对比" onClick={() => setWorkspaceView("compare")}>⇄</button>
         <button className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`} aria-label="快捷路径工具" onClick={() => setWorkspaceView("quick-links")}>↗</button>
         <div className="rail-spacer" />
         <button className="avatar" aria-label="当前用户">林</button>
@@ -869,17 +869,17 @@ export default function Home() {
         </header>
 
         <section className={`tool-home ${workspaceView !== "tools" ? "view-hidden" : ""}`}>
-          <button className="tool-card tool-card-primary" onClick={() => { setComparisonMethod("local"); setWorkspaceView("compare"); }}><span>⇄</span><div><strong>本地版本对比</strong><small>逐行查看已有版本的新增、删除与修改</small></div><b>打开 →</b></button>
+          <button className="tool-card tool-card-primary" onClick={() => { setComparisonMethod("local"); setWorkspaceView("compare"); }}><span>⇄</span><div><strong>本地文档对比</strong><small>逐行查看已有版本的新增、删除与修改</small></div><b>打开 →</b></button>
           <button className="tool-card" onClick={() => { setComparisonMethod("beyond"); setWorkspaceView("compare"); }}><span>BC</span><div><strong>Beyond Compare</strong><small>选择两个本机文档并调用桌面程序</small></div><b>打开 →</b></button>
           <button className="tool-card" onClick={() => { setComparisonMethod("ai"); setWorkspaceView("compare"); }}><span>AI</span><div><strong>AI 对比</strong><small>预留语义分析入口，外部服务默认关闭</small></div><b>打开 →</b></button>
           <button className="tool-card" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><div><strong>快捷路径</strong><small>按项目管理常用网页和内部系统入口</small></div><b>打开 →</b></button>
           <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
-          <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>历史记录仅用于版本对比，不在首页提供基线建立入口。</small></div>
+          <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>已有历史快照可在文档对比工具中继续使用。</small></div>
         </section>
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
           <header className="topbar quick-path-topbar">
             <div>
-              <div className="eyebrow">需求工作空间 / 本地效率工具</div>
+              <div className="eyebrow">SYE / QUICK PATHS</div>
               <div className="title-row">
                 <h1>快捷路径工具</h1>
                 <span className="local-badge">● 本地保存</span>
@@ -1000,7 +1000,7 @@ export default function Home() {
         </div>
 
         <header className={`topbar compare-tool-topbar ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
-          <div><div className="eyebrow">SYE / DOCUMENT TOOLS</div><div className="title-row"><h1>文档版本对比工具</h1><span className="local-badge">● 按需使用</span></div></div>
+          <div><div className="eyebrow">SYE / DOCUMENT TOOLS</div><div className="title-row"><h1>文档对比工具</h1><span className="local-badge">● 按需使用</span></div></div>
           <button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button>
         </header>
         <section className={`main-grid compare-workspace ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
@@ -1008,8 +1008,8 @@ export default function Home() {
             <section className={`card compare-card ${compareFullscreen ? "compare-fullscreen" : ""}`}>
               <div className="card-head compare-heading">
                 <div>
-                  <span className="section-kicker">VERSION DIFF</span>
-                  <h2>版本对比</h2>
+                  <span className="section-kicker">DOCUMENT COMPARE</span>
+                  <h2>文档对比</h2>
                 </div>
                 <div className="compare-heading-actions">
                   {comparisonMethod === "local" && (
@@ -1023,7 +1023,7 @@ export default function Home() {
                     <button
                       className="fullscreen-button"
                       onClick={() => setCompareFullscreen(current => !current)}
-                      aria-label={compareFullscreen ? "退出全屏版本对比" : "全屏查看版本对比"}
+                      aria-label={compareFullscreen ? "退出全屏文档对比" : "全屏查看文档对比"}
                     >
                       {compareFullscreen ? "↙ 退出全屏" : "⛶ 放大全屏"}
                     </button>
@@ -1065,14 +1065,14 @@ export default function Home() {
               {comparisonMethod === "local" && (comparableVersions.length < 2 ? (
                 <div className="compare-empty">
                   <span>⇄</span>
-                  <p>暂无两个可比较的历史版本</p>
-                  <small>当前工具仅使用本机已有的版本快照，不提供新的基线建立入口。</small>
+                  <p>暂无两个可比较的历史快照</p>
+                  <small>可以使用已有历史快照进行逐行对比，或切换到 Beyond Compare 直接选择两个本机文档。</small>
                 </div>
               ) : (
                 <>
                   <div className="compare-controls">
                     <label>
-                      <span>基准版本</span>
+                      <span>左侧历史快照</span>
                       <select value={baseVersionId} onChange={event => {
                         setBaseVersionId(event.target.value);
                         setDiffRows([]);
@@ -1088,7 +1088,7 @@ export default function Home() {
                       setActiveDiffId("");
                     }} aria-label="交换比较版本">⇄</button>
                     <label>
-                      <span>目标版本</span>
+                      <span>右侧历史快照</span>
                       <select value={targetVersionId} onChange={event => {
                         setTargetVersionId(event.target.value);
                         setDiffRows([]);
@@ -1223,14 +1223,14 @@ export default function Home() {
 
                     <div className="beyond-version-controls">
                       <label>
-                        <span>基准版本</span>
+                        <span>左侧历史快照</span>
                         <select value={baseVersionId} disabled={!history.length} onChange={event => {
                           const nextId = event.target.value;
                           setBaseVersionId(nextId);
                           setBeyondLeftPath(boundComparisonPath(history.find(item => item.id === nextId)));
                           setBeyondLeftVersionId(nextId);
                         }}>
-                          {!history.length && <option value="">尚无归档版本</option>}
+                          {!history.length && <option value="">可直接选择文件</option>}
                           {history.map(item => (
                             <option value={item.id} key={`beyond-base-${item.id}`}>{item.version} · {item.id}</option>
                           ))}
@@ -1238,14 +1238,14 @@ export default function Home() {
                       </label>
                       <span>对比</span>
                       <label>
-                        <span>修改版本</span>
+                        <span>右侧历史快照</span>
                         <select value={targetVersionId} disabled={!history.length} onChange={event => {
                           const nextId = event.target.value;
                           setTargetVersionId(nextId);
                           setBeyondRightPath(boundComparisonPath(history.find(item => item.id === nextId)));
                           setBeyondRightVersionId(nextId);
                         }}>
-                          {!history.length && <option value="">尚无归档版本</option>}
+                          {!history.length && <option value="">可直接选择文件</option>}
                           {history.map(item => (
                             <option value={item.id} key={`beyond-target-${item.id}`}>{item.version} · {item.id}</option>
                           ))}
@@ -1255,7 +1255,7 @@ export default function Home() {
 
                     <div className="beyond-document-paths">
                       <label>
-                        <span>基准版本文档路径 · {selectedBaseVersion?.version || "未选择版本"}</span>
+                        <span>左侧文档路径 · {selectedBaseVersion?.version || "未选择版本"}</span>
                         <div className="path-input">
                           <input
                             value={beyondLeftPath}
@@ -1266,7 +1266,7 @@ export default function Home() {
                             list={`base-source-paths-${baseVersionId}`}
                             placeholder={selectedBaseVersion?.snapshots?.[0]?.path
                               ? `选择“${selectedBaseVersion.snapshots[0].path}”的本机完整路径`
-                              : "输入或选择基准版本文档完整路径"}
+                              : "输入或选择左侧文档完整路径"}
                           />
                           <datalist id={`base-source-paths-${baseVersionId}`}>
                             {selectedBaseVersion?.sourcePaths?.map(source => (
@@ -1298,7 +1298,7 @@ export default function Home() {
                         aria-label="交换左右文档路径"
                       >⇄</button>
                       <label>
-                        <span>修改版本文档路径 · {selectedTargetVersion?.version || "未选择版本"}</span>
+                        <span>右侧文档路径 · {selectedTargetVersion?.version || "未选择版本"}</span>
                         <div className="path-input">
                           <input
                             value={beyondRightPath}
@@ -1309,7 +1309,7 @@ export default function Home() {
                             list={`target-source-paths-${targetVersionId}`}
                             placeholder={selectedTargetVersion?.snapshots?.[0]?.path
                               ? `选择“${selectedTargetVersion.snapshots[0].path}”的本机完整路径`
-                              : "输入或选择修改版本文档完整路径"}
+                              : "输入或选择右侧文档完整路径"}
                           />
                           <datalist id={`target-source-paths-${targetVersionId}`}>
                             {selectedTargetVersion?.sourcePaths?.map(source => (
@@ -1338,7 +1338,7 @@ export default function Home() {
                   <div className="beyond-actions">
                     <p>点击后直接启动本机 Beyond Compare；路径仅保存在当前电脑，不会写入归档或发送到外部服务。</p>
                     <button onClick={() => void launchBeyondCompare()}>
-                      {`打开 Beyond Compare：${selectedBaseVersion?.version || "基准版本"} ↔ ${selectedTargetVersion?.version || "修改版本"}`}
+                      {`打开 Beyond Compare：${selectedBaseVersion?.version || "左侧文档"} ↔ ${selectedTargetVersion?.version || "右侧文档"}`}
                     </button>
                   </div>
                 </div>

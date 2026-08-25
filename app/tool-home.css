@@ -20,3 +20,9 @@
 .compare-workspace .main-column { min-width: 0; }
 .compare-workspace .compare-card { margin: 0; }
 @media(max-width:760px){ .tool-home{grid-template-columns:1fr;padding:18px}.tool-card{grid-template-columns:46px 1fr}.tool-card>b{display:none}.compare-workspace{padding:16px} }
+.tool-home-topbar { background: linear-gradient(110deg, rgba(35,160,103,.08), transparent 55%); }
+.tool-card:nth-child(2) > span { background: #e8f6ef; color: #16825a; }
+.tool-card:nth-child(3) > span { background: #edf2ff; color: #4967c9; }
+.tool-card:nth-child(4) > span { background: #fff3df; color: #b46e16; }
+.compare-tool-topbar { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); }
+.quick-path-topbar { background: linear-gradient(110deg, rgba(101,79,208,.06), transparent 55%); }
