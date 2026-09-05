@@ -127,6 +127,7 @@ $fileVersion = ($versionParts[0..3] -join ".")
     /optimize+ `
     /win32icon:$iconOutput `
     /out:$updaterOutput `
+    /reference:System.Drawing.dll `
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Windows.Forms.dll `
