@@ -52,8 +52,8 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
 test("home page is a local toolbox without baseline creation elements", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks"/);
-  assert.match(page, /本地小工具工作台/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates"/);
+  assert.match(page, /今天想处理什么/);
   assert.match(page, /setWorkspaceView\("compare"\)/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
   assert.doesNotMatch(page, /className="card source-card"/);
@@ -84,7 +84,7 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
   assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(page, /按钮名称,链接地址/);
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates"/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
   assert.match(page, /workspaceView !== "compare" \? "view-hidden"/);
   assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
@@ -100,6 +100,21 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /groupedQuickLinks\.map/);
 });
 
+test("Apple-style interface exposes a consistent labeled workspace navigation", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const theme = await readFile(new URL("../app/apple-ui.css", import.meta.url), "utf8");
+
+  assert.match(page, /import "\.\/apple-ui\.css"/);
+  assert.match(page, /本地需求工作台/);
+  assert.match(page, /今天想处理什么/);
+  assert.match(page, /<b>文档对比<\/b>/);
+  assert.match(page, /<b>内容提取<\/b>/);
+  assert.match(page, /<b>评审问题<\/b>/);
+  assert.match(page, /<b>任务清单<\/b>/);
+  assert.match(theme, /--apple-blue: #007aff/);
+  assert.match(theme, /backdrop-filter: saturate\(180%\) blur\(30px\)/);
+  assert.match(theme, /grid-template-columns: repeat\(4,minmax\(0,1fr\)\)/);
+});
 test("Windows package embeds the generated SYE application icon", async () => {
   const script = await readFile(new URL("../launcher/build-exe.ps1", import.meta.url), "utf8");
 
@@ -110,21 +125,20 @@ test("Windows package embeds the generated SYE application icon", async () => {
   assert.match(script, /SYE-icon\.png/);
 });
 
-test("productivity tools persist locally and expose the desktop screenshot launcher", async () => {
+test("template library stores files locally, previews supported content and removes screenshot functionality", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const diff = await readFile(new URL("../app/diff-utils.ts", import.meta.url), "utf8");
   const launcher = await readFile(new URL("../launcher/ReqFlowLauncher.cs", import.meta.url), "utf8");
 
-  assert.match(page, /文档内容提取/);
-  assert.match(page, /评审问题记录/);
-  assert.match(page, /本地任务清单/);
-  assert.match(page, /sye-review-issues-v1/);
-  assert.match(page, /sye-local-tasks-v1/);
-  assert.match(page, /\/api\/tools\/screenshot\/show/);
-  assert.match(diff, /isPlainText/);
+  assert.match(page, /模板目录/);
+  assert.match(page, /TEMPLATE_DB_NAME = "sye-template-library"/);
+  assert.match(page, /indexedDB\.open/);
+  assert.match(page, /storeTemplate/);
+  assert.match(page, /readStoredTemplates/);
+  assert.match(page, /downloadTemplate/);
+  assert.match(page, /templatePreviewUrl/);
+  assert.match(page, /<iframe title=/);
   assert.match(diff, /document\.file\.text\(\)/);
-  assert.match(launcher, /class ScreenshotFloatingForm/);
-  assert.match(launcher, /graphics\.CopyFromScreen/);
-  assert.match(launcher, /Clipboard\.SetImage/);
-  assert.match(launcher, /SaveFileDialog/);
+  assert.doesNotMatch(page, /screenshot\/show|桌面悬浮截图|桌面截图/);
+  assert.doesNotMatch(launcher, /Screenshot|screenshot|桌面截图|CopyFromScreen|Clipboard\.SetImage/);
 });

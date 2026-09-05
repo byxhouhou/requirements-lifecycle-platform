@@ -7,6 +7,7 @@ import "./compare.css";
 import "./quick-links.css";
 import "./tool-home.css";
 import "./productivity-tools.css";
+import "./apple-ui.css";
 import { compareSnapshots, DiffRow, SnapshotFile, snapshotDocuments } from "./diff-utils";
 
 type ImportedDoc = {
@@ -41,7 +42,7 @@ type BaselineCommit = {
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
-type WorkspaceView = "tools" | "compare" | "quick-links" | "extract" | "reviews" | "tasks";
+type WorkspaceView = "tools" | "compare" | "quick-links" | "extract" | "reviews" | "tasks" | "templates";
 
 type BeyondCompareStatus = {
   installed: boolean;
@@ -88,6 +89,19 @@ type LocalTask = {
   createdAt: string;
 };
 
+type TemplateCategory = "需求输入" | "SRD" | "评审记录" | "变更管理" | "其他";
+
+type TemplateItem = {
+  id: string;
+  name: string;
+  category: TemplateCategory;
+  format: string;
+  size: number;
+  preview: string;
+  readable: boolean;
+  createdAt: string;
+  blob: Blob;
+};
 type WritableFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
 type FileHandle = { createWritable: () => Promise<WritableFile> };
 type DirectoryHandle = {
@@ -236,6 +250,48 @@ const decodeChineseConfig = (buffer: ArrayBuffer) => {
   }
 };
 
+const TEMPLATE_DB_NAME = "sye-template-library";
+const TEMPLATE_STORE_NAME = "templates";
+
+const openTemplateDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
+  const request = indexedDB.open(TEMPLATE_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    if (!request.result.objectStoreNames.contains(TEMPLATE_STORE_NAME)) {
+      request.result.createObjectStore(TEMPLATE_STORE_NAME, { keyPath: "id" });
+    }
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
+});
+
+const readStoredTemplates = async () => {
+  const database = await openTemplateDatabase();
+  return new Promise<TemplateItem[]>((resolve, reject) => {
+    const request = database.transaction(TEMPLATE_STORE_NAME, "readonly").objectStore(TEMPLATE_STORE_NAME).getAll();
+    request.onsuccess = () => { database.close(); resolve(request.result as TemplateItem[]); };
+    request.onerror = () => { database.close(); reject(request.error); };
+  });
+};
+
+const storeTemplate = async (template: TemplateItem) => {
+  const database = await openTemplateDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = database.transaction(TEMPLATE_STORE_NAME, "readwrite").objectStore(TEMPLATE_STORE_NAME).put(template);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+};
+
+const removeStoredTemplate = async (id: string) => {
+  const database = await openTemplateDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = database.transaction(TEMPLATE_STORE_NAME, "readwrite").objectStore(TEMPLATE_STORE_NAME).delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+};
 const readableSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -336,6 +392,11 @@ export default function Home() {
   const [taskTitle, setTaskTitle] = useState("");
   const [taskPriority, setTaskPriority] = useState<LocalTask["priority"]>("中");
   const [taskDueDate, setTaskDueDate] = useState("");
+  const templateInputRef = useRef<HTMLInputElement>(null);
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templateCategory, setTemplateCategory] = useState<TemplateCategory>("需求输入");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templatePreviewUrl, setTemplatePreviewUrl] = useState("");
 
   useEffect(() => {
     try {
@@ -345,6 +406,13 @@ export default function Home() {
       setReviewIssues([]);
       setTasks([]);
     }
+  }, []);
+  useEffect(() => {
+    void readStoredTemplates().then(items => {
+      const ordered = [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      setTemplates(ordered);
+      setSelectedTemplateId(current => current || ordered[0]?.id || "");
+    }).catch(() => notify("模板目录读取失败，请检查浏览器本地存储权限"));
   }, []);
   useEffect(() => {
     void loadPersistedState().then(state => {
@@ -395,7 +463,16 @@ export default function Home() {
     });
     return Array.from(groups.entries()).map(([project, links]) => ({ project, links }));
   }, [quickLinks]);
-  const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
+  const selectedTemplate = useMemo(() => templates.find(item => item.id === selectedTemplateId), [templates, selectedTemplateId]);
+  useEffect(() => {
+    if (!selectedTemplate || selectedTemplate.format !== "PDF") {
+      setTemplatePreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(selectedTemplate.blob);
+    setTemplatePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedTemplate]);  const comparableVersions = useMemo(() => history.filter(item => item.snapshots?.length), [history]);
   const selectedBaseVersion = useMemo(
     () => history.find(item => item.id === baseVersionId),
     [history, baseVersionId],
@@ -943,44 +1020,96 @@ export default function Home() {
     notify("任务已添加");
   };
 
-  const launchScreenshotTool = async () => {
+  const importTemplates = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
     try {
-      const response = await fetch("/api/tools/screenshot/show", { method: "POST", headers: { "X-ReqFlow-Integration": "screenshot" } });
-      if (!response.ok) throw new Error();
-      notify("截图悬浮按钮已显示在桌面右上角");
+      const imported: TemplateItem[] = [];
+      for (const file of files) {
+        const format = file.name.split(".").pop()?.toUpperCase() || "FILE";
+        const [snapshot] = await snapshotDocuments([{ file, name: file.name, path: file.name, format, size: file.size }]);
+        const item: TemplateItem = {
+          id: crypto.randomUUID(),
+          name: file.name,
+          category: templateCategory,
+          format,
+          size: file.size,
+          preview: snapshot.content,
+          readable: snapshot.readable,
+          createdAt: new Date().toISOString(),
+          blob: file.slice(0, file.size, file.type || "application/octet-stream"),
+        };
+        await storeTemplate(item);
+        imported.push(item);
+      }
+      const next = [...imported, ...templates];
+      setTemplates(next);
+      setSelectedTemplateId(imported[0].id);
+      notify(`已存入 ${imported.length} 个模板`);
     } catch {
-      notify("截图工具仅在 SYE.exe 中可用");
+      notify("模板保存失败，请检查本地存储空间");
+    }
+  };
+
+  const downloadTemplate = (template: TemplateItem) => {
+    const url = URL.createObjectURL(template.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = template.name;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const deleteTemplate = async (template: TemplateItem) => {
+    if (!window.confirm(`确认从模板目录删除“${template.name}”吗？`)) return;
+    try {
+      await removeStoredTemplate(template.id);
+      const next = templates.filter(item => item.id !== template.id);
+      setTemplates(next);
+      setSelectedTemplateId(current => current === template.id ? (next[0]?.id || "") : current);
+      notify("模板已删除");
+    } catch {
+      notify("模板删除失败");
     }
   };
   return (
     <main className="app-shell">
       <aside className="rail">
-        <div className="brand-mark">S</div>
-        <button className={`rail-btn ${workspaceView === "tools" ? "active" : ""}`} aria-label="小工具工作台" onClick={() => setWorkspaceView("tools")}>⌂</button>
-        <button className={`rail-btn ${workspaceView === "compare" ? "active" : ""}`} aria-label="文档对比" onClick={() => setWorkspaceView("compare")}>⇄</button>
-        <button className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`} aria-label="快捷路径工具" onClick={() => setWorkspaceView("quick-links")}>↗</button>
+        <div className="brand-block"><div className="brand-mark">S</div><div><strong>SYE</strong><small>本地需求工作台</small></div></div>
+        <span className="rail-section-title">工作空间</span>
+        <button className={`rail-btn ${workspaceView === "tools" ? "active" : ""}`} aria-label="工作台" onClick={() => setWorkspaceView("tools")}><span>⌂</span><b>工作台</b></button>
+        <button className={`rail-btn ${workspaceView === "compare" ? "active" : ""}`} aria-label="文档对比" onClick={() => setWorkspaceView("compare")}><span>⇄</span><b>文档对比</b></button>
+        <button className={`rail-btn ${workspaceView === "extract" ? "active" : ""}`} aria-label="内容提取" onClick={() => setWorkspaceView("extract")}><span>▤</span><b>内容提取</b></button>
+        <span className="rail-section-title">组织</span>
+        <button className={`rail-btn ${workspaceView === "reviews" ? "active" : ""}`} aria-label="评审问题" onClick={() => setWorkspaceView("reviews")}><span>◇</span><b>评审问题</b></button>
+        <button className={`rail-btn ${workspaceView === "tasks" ? "active" : ""}`} aria-label="任务清单" onClick={() => setWorkspaceView("tasks")}><span>✓</span><b>任务清单</b></button>
+        <button className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`} aria-label="快捷路径" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><b>快捷路径</b></button>
+        <button className={`rail-btn ${workspaceView === "templates" ? "active" : ""}`} aria-label="模板目录" onClick={() => setWorkspaceView("templates")}><span>▦</span><b>模板目录</b></button>
         <div className="rail-spacer" />
-        <button className="avatar" aria-label="当前用户">林</button>
+        <div className="account-block"><button className="avatar" aria-label="当前用户">林</button><div><strong>本地用户</strong><small>数据仅保存在本机</small></div></div>
       </aside>
 
       <section className="workspace">
         <header className={`topbar tool-home-topbar ${workspaceView !== "tools" ? "view-hidden" : ""}`}>
           <div>
-            <div className="eyebrow">SYE / LOCAL TOOLBOX</div>
-            <div className="title-row"><h1>本地小工具工作台</h1><span className="local-badge">● 本地优先</span></div>
-            <p className="tool-home-subtitle">常用文档对比与路径工具集中入口，按需打开、互不干扰。</p>
+            <div className="eyebrow">SYE 工作空间</div>
+            <div className="title-row"><h1>今天想处理什么？</h1><span className="local-badge"><i /> 本地模式</span></div>
+            <p className="tool-home-subtitle">文档处理、评审与个人效率工具，集中在一处完成。</p>
           </div>
         </header>
 
         <section className={`tool-home ${workspaceView !== "tools" ? "view-hidden" : ""}`}>
-          <button className="tool-card tool-card-primary" onClick={() => { setComparisonMethod("local"); setWorkspaceView("compare"); }}><span>⇄</span><div><strong>本地文档对比</strong><small>逐行查看已有版本的新增、删除与修改</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => { setComparisonMethod("beyond"); setWorkspaceView("compare"); }}><span>BC</span><div><strong>Beyond Compare</strong><small>选择两个本机文档并调用桌面程序</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => { setComparisonMethod("ai"); setWorkspaceView("compare"); }}><span>AI</span><div><strong>AI 对比</strong><small>预留语义分析入口，外部服务默认关闭</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><div><strong>快捷路径</strong><small>按项目管理常用网页和内部系统入口</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => setWorkspaceView("extract")}><span>TX</span><div><strong>文档内容提取</strong><small>提取 DOCX 和常用文本格式，复制或导出 TXT</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => setWorkspaceView("reviews")}><span>RI</span><div><strong>评审问题记录</strong><small>管理问题、章节、责任人、状态和截止日期</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => setWorkspaceView("tasks")}><span>✓</span><div><strong>本地任务清单</strong><small>记录优先级、截止日期和完成状态</small></div><b>打开 →</b></button>
-          <button className="tool-card" onClick={() => void launchScreenshotTool()}><span>▣</span><div><strong>桌面悬浮截图</strong><small>显示置顶截图按钮，框选后复制或保存 PNG</small></div><b>启动 →</b></button>          <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
+          <div className="tool-home-label"><span>常用工具</span><small>所有处理默认在当前电脑完成</small></div>
+          <button className="tool-card tool-card-primary" onClick={() => { setComparisonMethod("local"); setWorkspaceView("compare"); }}><span>⇄</span><div><strong>本地文档对比</strong><small>逐行查看已有版本的新增、删除与修改</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => { setComparisonMethod("beyond"); setWorkspaceView("compare"); }}><span>BC</span><div><strong>Beyond Compare</strong><small>选择两个本机文档并调用桌面程序</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => { setComparisonMethod("ai"); setWorkspaceView("compare"); }}><span>AI</span><div><strong>AI 对比</strong><small>预留语义分析入口，外部服务默认关闭</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><div><strong>快捷路径</strong><small>按项目管理常用网页和内部系统入口</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("extract")}><span>TX</span><div><strong>文档内容提取</strong><small>提取 DOCX 和常用文本格式，复制或导出 TXT</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("reviews")}><span>RI</span><div><strong>评审问题记录</strong><small>管理问题、章节、责任人、状态和截止日期</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("tasks")}><span>✓</span><div><strong>本地任务清单</strong><small>记录优先级、截止日期和完成状态</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("templates")}><span>▦</span><div><strong>模板目录</strong><small>分类存放并预览需求、SRD、评审与变更模板</small></div><b>打开</b></button>          <div className="tool-home-label tool-home-label-status"><span>运行状态</span><small>本机工作区概览</small></div>
+          <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
           <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>已有历史快照可在文档对比工具中继续使用。</small></div>
         </section>
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
@@ -1128,6 +1257,39 @@ export default function Home() {
           <header className="productivity-head"><div><span>LOCAL TASKS</span><h1>本地任务清单</h1><p>轻量记录个人待办，不连接外部任务系统。</p></div><button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button></header>
           <section className="tool-panel entry-form task-form"><input value={taskTitle} onChange={event => setTaskTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") addTask(); }} placeholder="输入任务内容" /><select value={taskPriority} onChange={event => setTaskPriority(event.target.value as LocalTask["priority"])}><option>高</option><option>中</option><option>低</option></select><input type="date" value={taskDueDate} onChange={event => setTaskDueDate(event.target.value)} /><button className="primary" onClick={addTask}>添加任务</button></section>
           <section className="tool-panel record-list">{tasks.length ? tasks.map(task => <article className={`record-row task-row ${task.completed ? "completed" : ""}`} key={task.id}><input type="checkbox" checked={task.completed} onChange={() => persistTasks(tasks.map(item => item.id === task.id ? { ...item, completed: !item.completed } : item))} /><span className={`priority priority-${task.priority}`}>{task.priority}</span><div><strong>{task.title}</strong><small>{task.dueDate ? `截止：${task.dueDate}` : "无截止日期"}</small></div><button className="record-delete" onClick={() => persistTasks(tasks.filter(item => item.id !== task.id))}>删除</button></article>) : <div className="tool-empty">尚无待办任务</div>}</section>
+        </section>
+        <section className={`productivity-view template-library-view ${workspaceView !== "templates" ? "view-hidden" : ""}`}>
+          <header className="productivity-head">
+            <div><span>TEMPLATE LIBRARY</span><h1>模板目录</h1><p>分类存放常用输入模板，模板文件和预览内容只保存在当前电脑。</p></div>
+            <button className="ghost" onClick={() => setWorkspaceView("tools")}>← 返回工具台</button>
+          </header>
+          <section className="tool-panel template-toolbar">
+            <div><strong>添加模板</strong><small>支持 DOC、DOCX、WPS、PDF、TXT、Markdown、CSV、JSON、XML 和 YAML</small></div>
+            <label><span>存入分类</span><select value={templateCategory} onChange={event => setTemplateCategory(event.target.value as TemplateCategory)}><option>需求输入</option><option>SRD</option><option>评审记录</option><option>变更管理</option><option>其他</option></select></label>
+            <button className="primary" onClick={() => templateInputRef.current?.click()}>导入模板</button>
+            <input ref={templateInputRef} className="hidden-input" type="file" multiple accept=".doc,.docx,.wps,.pdf,.txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml" onChange={event => void importTemplates(event)} />
+          </section>
+          <div className="template-layout">
+            <section className="tool-panel template-catalog">
+              <div className="template-catalog-head"><div><strong>已存模板</strong><small>{templates.length} 个文件</small></div></div>
+              <div className="template-list">
+                {templates.length ? templates.map(template => (
+                  <button className={`template-list-item ${selectedTemplateId === template.id ? "active" : ""}`} key={template.id} onClick={() => setSelectedTemplateId(template.id)}>
+                    <span>{template.format.slice(0, 4)}</span><div><strong>{template.name}</strong><small>{template.category} · {readableSize(template.size)}</small></div>
+                  </button>
+                )) : <div className="template-empty"><span>▦</span><strong>模板目录还是空的</strong><small>选择分类后导入第一个模板</small></div>}
+              </div>
+            </section>
+            <section className="tool-panel template-preview">
+              {selectedTemplate ? <>
+                <div className="panel-toolbar template-preview-head"><div><strong>{selectedTemplate.name}</strong><small>{selectedTemplate.category} · {selectedTemplate.format} · {readableSize(selectedTemplate.size)}</small></div><div><button className="ghost" onClick={() => downloadTemplate(selectedTemplate)}>下载副本</button><button className="template-delete" onClick={() => void deleteTemplate(selectedTemplate)}>删除</button></div></div>
+                {selectedTemplate.format === "PDF" && templatePreviewUrl
+                  ? <iframe title={`${selectedTemplate.name} 预览`} src={templatePreviewUrl} />
+                  : <textarea readOnly value={selectedTemplate.preview} aria-label="模板内容预览" />}
+                <div className="template-preview-note">{selectedTemplate.readable || selectedTemplate.format === "PDF" ? "已生成内容预览" : "当前格式暂显示文件属性摘要，原始模板仍可完整下载使用。"}</div>
+              </> : <div className="template-preview-empty"><span>⌘</span><strong>选择一个模板进行预览</strong><small>DOCX 和文本显示正文，PDF 直接显示页面。</small></div>}
+            </section>
+          </div>
         </section>
         <header className={`topbar compare-tool-topbar ${workspaceView !== "compare" ? "view-hidden" : ""}`}>
           <div><div className="eyebrow">SYE / DOCUMENT TOOLS</div><div className="title-row"><h1>文档对比工具</h1><span className="local-badge">● 按需使用</span></div></div>
