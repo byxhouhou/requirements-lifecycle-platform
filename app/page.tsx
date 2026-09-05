@@ -1,3 +1,4 @@
+import { normalizeQuickLink, isFileQuickLink } from "./quick-link-utils";
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -177,22 +178,6 @@ const persistState = (history: BaselineCommit[], quickLinks: QuickLink[]) => {
   }).catch(() => {
     // Development mode has no local EXE persistence API; browser storage remains available.
   });
-};
-
-const normalizeQuickLink = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed || /^(javascript|data|vbscript):/i.test(trimmed)) return "";
-  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
-    ? trimmed
-    : /^(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(trimmed)
-      ? `http://${trimmed}`
-      : `https://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
-  } catch {
-    return "";
-  }
 };
 
 const parseQuickLinkConfig = (content: string): QuickLink[] => {
@@ -947,13 +932,27 @@ export default function Home() {
     notify(`快捷按钮“${name}”已更新`);
   };
 
-  const openQuickLink = (link: QuickLink) => {
+  const openQuickLink = async (link: QuickLink) => {
     const url = normalizeQuickLink(link.url);
-    if (!url) return notify("该链接格式无效，请删除后重新添加");
-    const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (!opened) notify("浏览器阻止了新窗口，请允许此页面打开链接");
+    if (!url) return notify("路径格式无效，请在修改页面检查地址");
+    if (!isFileQuickLink(url)) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    try {
+      const response = await fetch("/api/quick-links/open-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-ReqFlow-Integration": "quick-link" },
+        body: JSON.stringify({ path: url }),
+      });
+      if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("请使用 SYE.exe 打开共享文件路径");
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "路径打开失败");
+      notify("已在资源管理器中打开路径");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "请使用 SYE.exe 打开共享文件路径");
+    }
   };
-
   const importQuickLinks = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";

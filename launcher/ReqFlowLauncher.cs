@@ -222,6 +222,11 @@ namespace ReqFlowLauncher
                     var request = ReadRequest(stream);
                     if (request == null) return;
 
+                    if (request.Path == "/api/quick-links/open-file")
+                    {
+                        HandleQuickLinkFile(stream, request);
+                        return;
+                    }
                     if (request.Path == "/api/state")
                     {
                         HandleStateRequest(stream, request);
@@ -273,6 +278,26 @@ if (request.Path.StartsWith("/api/integrations/beyond-compare/", StringCompariso
             }
         }
 
+        private void HandleQuickLinkFile(NetworkStream stream, HttpRequest request)
+        {
+            string header;
+            if (request.Method != "POST" || !request.Headers.TryGetValue("X-ReqFlow-Integration", out header) || header != "quick-link")
+            {
+                WriteJson(stream, 403, new { error = "无效的本机路径请求" });
+                return;
+            }
+            try
+            {
+                var data = Json.Deserialize<Dictionary<string, string>>(Encoding.UTF8.GetString(request.Body));
+                var path = data["path"];
+                if (string.IsNullOrWhiteSpace(path) || path.IndexOf('"') >= 0 || path.IndexOfAny(new char[] { '\r', '\n', '\0' }) >= 0 || path.StartsWith(@"\\?\") || path.StartsWith(@"\\.\") || !(path.StartsWith(@"\\") || (path.Length > 2 && char.IsLetter(path[0]) && path[1] == ':' && path[2] == '\\')))
+                    throw new ArgumentException();
+                // Explorer locates files instead of executing a supplied program or script.
+                Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), "/select,\"" + path + "\"") { UseShellExecute = false });
+                WriteJson(stream, 200, new { opened = true });
+            }
+            catch { WriteJson(stream, 400, new { error = "无法打开路径，请检查路径格式、网络连接和共享权限" }); }
+        }
         private void HandleStateRequest(NetworkStream stream, HttpRequest request)
         {
             if (request.Method == "GET")

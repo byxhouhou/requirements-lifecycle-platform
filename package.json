@@ -10,8 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "start": "vite --host 127.0.0.1 --strictPort",
     "preview": "vite preview --host 127.0.0.1 --strictPort",
-    "test": "npm run build && npm run test:diff-build && node --test tests/smoke.test.mjs tests/diff.test.mjs",
-    "test:diff-build": "tsc app/diff-utils.ts --outDir .test-build --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM,DOM.Iterable --esModuleInterop --skipLibCheck --noEmit false",
+    "test": "npm run build && npm run test:diff-build && node --test tests/smoke.test.mjs tests/diff.test.mjs tests/quick-links.test.mjs",
+    "test:diff-build": "tsc app/diff-utils.ts app/quick-link-utils.ts --outDir .test-build --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM,DOM.Iterable --esModuleInterop --skipLibCheck --noEmit false",
     "package:windows": "powershell -ExecutionPolicy Bypass -File launcher/build-exe.ps1"
   },
   "dependencies": {
