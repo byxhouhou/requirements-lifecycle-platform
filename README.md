@@ -37,6 +37,8 @@ SRD 双向关联与追踪
 - 模板目录：按需求输入、SRD、评审记录、变更管理和其他分类存放模板；文件保存在当前浏览器的 IndexedDB，可预览、下载复用和删除。
 - T15 评审问题记录：记录文档、位置、问题、责任人、截止日期和处理状态，并保存在本机。
 - T22 本地任务清单：支持优先级、截止日期、完成勾选和删除，并保存在本机。
+- Skill 中心：提供团队 Skill 目录，支持上传 ZIP 或 `SKILL.md`、本机预览与下载，并可将通过校验的版本发布到可配置的公开 GitHub 仓库。
+- 内置“车载智能座舱需求分析” Skill，可从工具或 GitHub 下载；纯文本模型可使用包内合并版，图片内容先按转写交接表处理。
 
 - 支持选择单个文件、多个文件或整个文件夹。
 - 识别 `.doc`、`.docx`、`.wps` 和 `.pdf` 需求文档。
@@ -56,6 +58,7 @@ SRD 双向关联与追踪
 - Beyond Compare 入口直接根据基准版本和修改版本填写对应文档路径，并可调用本机程序。
 - 系统会自动检测 Beyond Compare；只有未检测到时才要求输入或选择 `BCompare.exe`。
 - AI 对比当前保持未配置状态，不会把需求文档发送到外部模型。
+- Skill 中心仅在用户主动刷新、下载或发布时访问 GitHub；发布令牌只在当前页面内存中使用，关闭发布窗口或完成发布后清除。
 - 提供平衡、精确和快速三种对齐模式：
   - 平衡模式：Histogram 低频行锚点 + 局部 Myers，适合需求文档。
   - 精确模式：Myers 最短编辑路径，适合规模适中的精细检查。
@@ -203,6 +206,18 @@ npm run package:windows
 5. 建立并提交需求基线。
 6. 在“文档归档记录”中查看、修改或删除本机记录。
 7. 选择两个带有内容快照的版本进行差异对比。
+
+### Skill 下载与分享
+
+1. 打开“Skill 下载”，可直接下载随工具提供的 Skill，或刷新配置的 GitHub 共享目录。
+2. 上传自己的 `.zip` 或 `SKILL.md`。工具会检查包大小、ZIP 路径、文件数量、解压大小，以及 `SKILL.md` 的 `name`、`description` 和版本格式。
+3. 核对显示名称、分类与作者，保存到本机；此时内容不会上传。
+4. 有目标仓库写权限的成员可以选择“发布到共享目录”，核对公开仓库后输入仅本次使用的 GitHub 访问令牌。发布会在同一个 Git 提交中写入版本 ZIP 和目录记录。
+5. 没有写权限的成员可下载本机 ZIP，交给仓库维护人或通过仓库贡献流程提交。
+
+共享目录采用 `public/skills/catalog.json`，包位于 `public/skills/packages/<skill-name>/<version>.zip`。可在“目录来源”中添加其他公开 GitHub 仓库与分支，扩展团队 Skill 来源。同名同版本内容不同的包会被拒绝，修改后应升级版本。
+
+当前内置包：[车载智能座舱需求分析 v0.3.0 ZIP](https://raw.githubusercontent.com/byxhouhou/requirements-lifecycle-platform/main/public/skills/packages/cockpit-requirements-analysis/0.3.0.zip)。团队目录规范与投稿说明见 [public/skills/README.md](public/skills/README.md)。
 
 归档目录示例：
 
