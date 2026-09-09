@@ -6,7 +6,7 @@ test("production build contains the local ReqFlow entry page", async () => {
   const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   assert.match(html, /ReqFlow/);
   assert.match(html, /Content-Security-Policy/);
-  assert.doesNotMatch(html, /https?:\/\/(?!127\.0\.0\.1|localhost)/);
+  assert.doesNotMatch(html, /https?:\/\/(?!127\.0\.0\.1|localhost|api\.github\.com|raw\.githubusercontent\.com)/);
 });
 
 test("Windows release provides a cache-safe SYE executable entry", async () => {
@@ -52,7 +52,7 @@ test("Windows launcher exposes explicit local file and Beyond Compare integratio
 test("home page is a local toolbox without baseline creation elements", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates" \| "skills"/);
   assert.match(page, /今天想处理什么/);
   assert.match(page, /setWorkspaceView\("compare"\)/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
@@ -84,7 +84,7 @@ test("quick path tool imports, persists, validates and opens configured links", 
   assert.match(page, /accept="\.csv,\.txt,text\/csv,text\/plain"/);
   assert.match(page, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(page, /按钮名称,链接地址/);
-  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates"/);
+  assert.match(page, /type WorkspaceView = "tools" \| "compare" \| "quick-links" \| "extract" \| "reviews" \| "tasks" \| "templates" \| "skills"/);
   assert.match(page, /setWorkspaceView\("quick-links"\)/);
   assert.match(page, /workspaceView !== "compare" \? "view-hidden"/);
   assert.match(page, /workspaceView !== "quick-links" \? "view-hidden"/);
@@ -111,6 +111,7 @@ test("Apple-style interface exposes a consistent labeled workspace navigation", 
   assert.match(page, /<b>内容提取<\/b>/);
   assert.match(page, /<b>评审问题<\/b>/);
   assert.match(page, /<b>任务清单<\/b>/);
+  assert.match(page, /<b>Skill 下载<\/b>/);
   assert.match(theme, /--apple-blue: #007aff/);
   assert.match(theme, /backdrop-filter: saturate\(180%\) blur\(30px\)/);
   assert.match(theme, /grid-template-columns: repeat\(4,minmax\(0,1fr\)\)/);
@@ -141,4 +142,25 @@ test("template library stores files locally, previews supported content and remo
   assert.match(diff, /document\.file\.text\(\)/);
   assert.doesNotMatch(page, /screenshot\/show|桌面悬浮截图|桌面截图/);
   assert.doesNotMatch(launcher, /Screenshot|screenshot|桌面截图|CopyFromScreen|Clipboard\.SetImage/);
+});
+test("skill library supports local upload, verified download and explicit GitHub publishing", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const library = await readFile(new URL("../app/skill-library.tsx", import.meta.url), "utf8");
+  const github = await readFile(new URL("../app/skill-github.ts", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+
+  assert.match(page, /SkillLibrary/);
+  assert.match(library, /accept="\.zip,\.md"/);
+  assert.match(library, /saveSkill/);
+  assert.match(library, /downloadSharedSkill/);
+  assert.match(library, /发布到共享目录/);
+  assert.match(library, /type="password"/);
+  assert.doesNotMatch(library, /localStorage\.setItem\([^\n]*token/i);
+  assert.match(github, /force: false/);
+  assert.match(github, /sha256/);
+  assert.match(github, /git\/blobs/);
+  assert.match(github, /git\/trees/);
+  assert.match(github, /git\/commits/);
+  assert.match(html, /https:\/\/api\.github\.com/);
+  assert.match(html, /https:\/\/raw\.githubusercontent\.com/);
 });

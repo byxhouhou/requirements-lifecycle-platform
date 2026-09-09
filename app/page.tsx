@@ -1,5 +1,7 @@
-import { normalizeQuickLink, isFileQuickLink } from "./quick-link-utils";
 "use client";
+
+import SkillLibrary from "./skill-library";
+import { normalizeQuickLink, isFileQuickLink } from "./quick-link-utils";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./workflow.css";
@@ -43,7 +45,7 @@ type BaselineCommit = {
 };
 
 type ComparisonMethod = "local" | "beyond" | "ai";
-type WorkspaceView = "tools" | "compare" | "quick-links" | "extract" | "reviews" | "tasks" | "templates";
+type WorkspaceView = "tools" | "compare" | "quick-links" | "extract" | "reviews" | "tasks" | "templates" | "skills";
 
 type BeyondCompareStatus = {
   installed: boolean;
@@ -1085,6 +1087,7 @@ export default function Home() {
         <button className={`rail-btn ${workspaceView === "tasks" ? "active" : ""}`} aria-label="任务清单" onClick={() => setWorkspaceView("tasks")}><span>✓</span><b>任务清单</b></button>
         <button className={`rail-btn ${workspaceView === "quick-links" ? "active" : ""}`} aria-label="快捷路径" onClick={() => setWorkspaceView("quick-links")}><span>↗</span><b>快捷路径</b></button>
         <button className={`rail-btn ${workspaceView === "templates" ? "active" : ""}`} aria-label="模板目录" onClick={() => setWorkspaceView("templates")}><span>▦</span><b>模板目录</b></button>
+        <button className={`rail-btn ${workspaceView === "skills" ? "active" : ""}`} aria-label="Skill 下载" onClick={() => setWorkspaceView("skills")}><span>SK</span><b>Skill 下载</b></button>
         <div className="rail-spacer" />
         <div className="account-block"><button className="avatar" aria-label="当前用户">林</button><div><strong>本地用户</strong><small>数据仅保存在本机</small></div></div>
       </aside>
@@ -1107,10 +1110,13 @@ export default function Home() {
           <button className="tool-card" onClick={() => setWorkspaceView("extract")}><span>TX</span><div><strong>文档内容提取</strong><small>提取 DOCX 和常用文本格式，复制或导出 TXT</small></div><b>打开</b></button>
           <button className="tool-card" onClick={() => setWorkspaceView("reviews")}><span>RI</span><div><strong>评审问题记录</strong><small>管理问题、章节、责任人、状态和截止日期</small></div><b>打开</b></button>
           <button className="tool-card" onClick={() => setWorkspaceView("tasks")}><span>✓</span><div><strong>本地任务清单</strong><small>记录优先级、截止日期和完成状态</small></div><b>打开</b></button>
-          <button className="tool-card" onClick={() => setWorkspaceView("templates")}><span>▦</span><div><strong>模板目录</strong><small>分类存放并预览需求、SRD、评审与变更模板</small></div><b>打开</b></button>          <div className="tool-home-label tool-home-label-status"><span>运行状态</span><small>本机工作区概览</small></div>
+          <button className="tool-card" onClick={() => setWorkspaceView("templates")}><span>▦</span><div><strong>模板目录</strong><small>分类存放并预览需求、SRD、评审与变更模板</small></div><b>打开</b></button>
+          <button className="tool-card" onClick={() => setWorkspaceView("skills")}><span>SK</span><div><strong>Skill 下载与分享</strong><small>下载团队 Skill，上传自己的工作流并分享</small></div><b>打开</b></button>
+          <div className="tool-home-label tool-home-label-status"><span>运行状态</span><small>本机工作区概览</small></div>
           <div className="tool-info-card"><span>LOCAL</span><strong>本地安全模式</strong><small>文档对比和快捷路径配置默认仅在当前电脑处理。</small></div>
           <div className="tool-info-card"><span>STATUS</span><strong>{history.length} 个历史版本</strong><small>已有历史快照可在文档对比工具中继续使用。</small></div>
         </section>
+        {workspaceView === "skills" && <SkillLibrary onBack={() => setWorkspaceView("tools")} />}
         <div className={`quick-path-workspace ${workspaceView !== "quick-links" ? "view-hidden" : ""}`}>
           <header className="topbar quick-path-topbar">
             <div>

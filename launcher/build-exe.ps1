@@ -170,7 +170,19 @@ if ($LASTEXITCODE -ne 0) {
     throw "SYE.exe compilation failed."
 }
 
-$hash = (Get-FileHash -Algorithm SHA256 $output).Hash
+$hashStream = [System.IO.File]::OpenRead($output)
+try {
+    $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = [System.BitConverter]::ToString($hashAlgorithm.ComputeHash($hashStream)).Replace("-", "")
+    }
+    finally {
+        $hashAlgorithm.Dispose()
+    }
+}
+finally {
+    $hashStream.Dispose()
+}
 Write-Output "Created: $output"
 Write-Output "SHA256: $hash"
 Write-Output "Created: $updaterOutput"

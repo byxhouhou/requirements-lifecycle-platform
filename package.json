@@ -1,6 +1,6 @@
 {
   "name": "requirements-lifecycle-platform",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,14 +10,15 @@
     "build": "tsc --noEmit && vite build",
     "start": "vite --host 127.0.0.1 --strictPort",
     "preview": "vite preview --host 127.0.0.1 --strictPort",
-    "test": "npm run build && npm run test:diff-build && node --test tests/smoke.test.mjs tests/diff.test.mjs tests/quick-links.test.mjs",
-    "test:diff-build": "tsc app/diff-utils.ts app/quick-link-utils.ts --outDir .test-build --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM,DOM.Iterable --esModuleInterop --skipLibCheck --noEmit false",
+    "test": "npm run build && npm run test:diff-build && node --test tests/smoke.test.mjs tests/diff.test.mjs tests/quick-links.test.mjs tests/skills.test.mjs",
+    "test:diff-build": "tsc app/diff-utils.ts app/quick-link-utils.ts app/skill-utils.ts app/skill-github.ts --outDir .test-build --target ES2022 --module NodeNext --moduleResolution NodeNext --lib ES2022,DOM,DOM.Iterable --esModuleInterop --skipLibCheck --noEmit false",
     "package:windows": "powershell -ExecutionPolicy Bypass -File launcher/build-exe.ps1"
   },
   "dependencies": {
     "jszip": "^3.10.1",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/react": "19.2.14",

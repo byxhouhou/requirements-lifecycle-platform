@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "cockpit-requirements-analysis@0.3.0",
+      "name": "cockpit-requirements-analysis",
+      "title": "车载智能座舱需求分析",
+      "description": "将客户需求完整提取并逐条补齐必要的车载系统条件，形成人工确认版；确认后按项目模板输出，支持纯文本模型的图片转写交接。",
+      "version": "0.3.0",
+      "author": "ReqFlow 团队",
+      "category": "需求分析",
+      "createdAt": "2026-09-08T00:00:00Z",
+      "fileCount": 17,
+      "size": 51935,
+      "sha256": "1a09b5c3a99a3e3ae5a8cbfc92cf2d1861144dc63cfccdcfeaa396e6c6f01198",
+      "packagePath": "public/skills/packages/cockpit-requirements-analysis/0.3.0.zip",
+      "publisher": "byxhouhou"
+    }
+  ]
+}
