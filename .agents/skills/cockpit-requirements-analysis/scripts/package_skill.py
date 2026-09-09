@@ -17,7 +17,7 @@ RUNTIME_FILES = [
     "references/image-handling.md",
     "references/review-and-baseline.md",
     "assets/project-intake.md",
-    "assets/image-transcription.md",
+    "assets/image-register.md",
     "assets/review-pack.md",
     "assets/baseline-and-template-mapping.md",
 ]
@@ -59,7 +59,7 @@ def validate(sources: dict[str, str]) -> str:
         raise ValueError("SKILL.md metadata version differs from VERSION.")
     for relative in ["README.md", "SOP.md", *RUNTIME_FILES[4:]]:
         # The image form is independent of the package release number.
-        if relative.endswith("image-transcription.md"):
+        if relative.endswith("image-register.md"):
             continue
         if version not in sources[relative]:
             raise ValueError(f"Package version absent from {relative}.")
@@ -90,7 +90,7 @@ def make_portable(sources: dict[str, str], version: str) -> bytes:
         "本文件已内嵌 SKILL.md、全部分析规则和空白表单。文中相对路径指向下面"
         "同名的“BEGIN FILE”区块；无需访问本机文件。按当前阶段使用对应内容。\n"
         "示例、表单空白和参考链接不属于客户要求或人工决定。请在接收实际项目"
-        "资料后开始分析。此文本不提供识图能力。客户原文、图片转写和决定记录"
+        "资料后开始分析。本 Skill 禁止查看或调用图片。客户文本原文、图片编码台账和决定记录"
         "须另行提供，且须处于模型可访问的上下文内。\n"
         "这是从源文件自动生成的副本；维护源文件后重新打包，不直接修改此文件。\n"
     )

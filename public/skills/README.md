@@ -4,8 +4,10 @@
 
 ## 当前可下载 Skill
 
-- [车载智能座舱需求分析 v0.3.0](https://raw.githubusercontent.com/byxhouhou/requirements-lifecycle-platform/main/public/skills/packages/cockpit-requirements-analysis/0.3.0.zip)
+- [车载智能座舱需求分析 v0.4.0](https://raw.githubusercontent.com/byxhouhou/requirements-lifecycle-platform/main/public/skills/packages/cockpit-requirements-analysis/0.4.0.zip)
 - [查看源码](../../.agents/skills/cockpit-requirements-analysis)
+
+`0.3.0` ZIP 保留为不可变历史归档，但不再出现在共享目录中；其图片流程不适用于当前工作模型，团队应使用 `0.4.0`。
 
 ## 在工具内投稿
 

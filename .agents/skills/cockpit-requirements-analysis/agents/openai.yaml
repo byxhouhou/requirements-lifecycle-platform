@@ -1,6 +1,6 @@
 interface:
   display_name: "车载智能座舱需求分析"
-  short_description: "完整提取客户需求，补齐车载约束，经人工确认后按模板交付"
-  default_prompt: "请使用 $cockpit-requirements-analysis 将客户资料整理为待人工确认版，保留来源并适度补齐车载系统约束。"
+  short_description: "追溯文本需求并补齐车载约束；图片只做 IMG 编码登记"
+  default_prompt: "请使用 $cockpit-requirements-analysis 将客户文本资料整理为待人工确认版，保留来源并适度补齐车载系统约束。禁止查看或调用图片，只建立 IMG 编码台账。"
 policy:
   allow_implicit_invocation: true
