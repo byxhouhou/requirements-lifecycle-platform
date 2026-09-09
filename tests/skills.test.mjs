@@ -99,7 +99,7 @@ test("publishing creates one atomic commit and never forces the shared branch", 
 test("bundled catalog matches the published ZIP and includes the SOP flowchart", async () => {
   const catalogText = await readFile(new URL("../public/skills/catalog.json", import.meta.url), "utf8");
   const catalog = parseCatalog(JSON.parse(catalogText));
-  const record = catalog.skills.find(item => item.id === "cockpit-requirements-analysis@0.3.0");
+  const record = catalog.skills.find(item => item.id === "cockpit-requirements-analysis@0.4.0");
   assert.ok(record);
   const packageBytes = await readFile(new URL(`../${record.packagePath}`, import.meta.url));
   const packageBuffer = Uint8Array.from(packageBytes).buffer;
@@ -109,4 +109,9 @@ test("bundled catalog matches the published ZIP and includes the SOP flowchart",
   assert.equal(skill.name, record.name);
   assert.equal(skill.version, record.version);
   assert.match(skill.sopText, /flowchart TD/);
+  assert.match(skill.sopText, /禁止模型查看图片/);
+  assert.match(skill.skillText, /不得打开、渲染、预览、识别、OCR、描述、分类或推断任何图片/);
+  assert.ok(skill.files.some(name => name.endsWith("assets/image-register.md")));
+  assert.ok(!skill.files.some(name => name.endsWith("assets/image-transcription.md")));
+  assert.ok(!catalog.skills.some(item => item.id === "cockpit-requirements-analysis@0.3.0"));
 });
